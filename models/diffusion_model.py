@@ -205,16 +205,19 @@ class Unet(nn.Module):
         resnet_block_groups=8,
         use_convnext=True,
         convnext_mult=2,
+        conditioning = 'implicit'
     ):
         super().__init__()
 
         # determine dimensions
         self.channels = channels
-
+        self.conditioning = conditioning
         init_dim = default(init_dim, 64)
         # init_dim = default(init_dim, dim // 3 * 2)
-
-        self.init_conv = nn.Conv2d(channels, init_dim, 7, padding=3)
+        if self.conditioning == 'implicit':
+            self.init_conv = nn.Conv2d(channels, init_dim, 7, padding=3)
+        if self.conditioning == 'explicit':
+            self.init_conv = nn.Conv2d(2*channels, init_dim, 7, padding=3)
         self.mish = nn.Mish()
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
@@ -282,10 +285,16 @@ class Unet(nn.Module):
 
     def forward(self, x, time, x_e = None):
         x=torch.tensor(x,dtype=torch.float)
-        x = self.init_conv(x)
-        x = self.mish(x)
-        # x_e = x_e
-        x = x_e +x 
+        if self.conditioning == 'implicit':
+            x = self.init_conv(x)
+            x = self.mish(x)
+            x = x_e +x 
+        elif self.conditioning == 'explicit':
+            x = torch.cat((x, x_e), dim = 1)
+
+            # breakpoint()
+            x = self.init_conv(x)
+
         t = self.time_mlp(time) if exists(self.time_mlp) else None
 
         h = []

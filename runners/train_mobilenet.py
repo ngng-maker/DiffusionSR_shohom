@@ -39,7 +39,7 @@ def init_weights(m):
         nn.init.normal_(m.weight, 0, 0.01)
         nn.init.zeros_(m.bias)
 
-def train_mobilenet(results_folder, train_dataset, dev_dataset, test_dataset):
+def train_mobilenet(results_folder, train_dataset, dev_dataset, test_dataset, num_epochs, batch_size, learning_rate):
     num_epochs = 20
     batch_size = 3
     learning_rate = 1e-4

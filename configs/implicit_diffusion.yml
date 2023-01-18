@@ -1,0 +1,20 @@
+
+root_folder: "datasets/update_v2_laser_velocity_xz_cross_section_data"
+downscale_method: "direct" 
+n_steps: "1" 
+
+residual_flag: false
+conditioning: "implicit"
+
+
+normalize_method: "standardize"
+schedule: "quadratic"
+
+timesteps: 1000
+batch_size: 16
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+encoder_results_dir: 'runs/clean/direct/encoder/2022_12_04_11_32_01/standardize'
+  
+

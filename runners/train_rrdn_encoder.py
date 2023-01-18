@@ -13,8 +13,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchsummary
 import torchvision
 import torchvision.transforms.functional as TF
+from datasets.dataset import TemperatureXZDataset
+from models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
 from PIL import Image
 from torch import nn
 from torch.optim import lr_scheduler
@@ -24,11 +27,7 @@ from torchvision import models, transforms
 from torchvision.datasets import MNIST
 from torchvision.utils import save_image
 from tqdm import tqdm
-import numpy as np
-import torchsummary
-import matplotlib.pyplot as plt
-from datasets.dataset import TemperatureXZDataset
-from models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
+
 # from torchvision.models.feature_extraction import create_feature_extractor
 
 

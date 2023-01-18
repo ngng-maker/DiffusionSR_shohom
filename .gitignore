@@ -6,6 +6,7 @@ datasets/__pycache__/*
 analysis/__pycache__/*
 analysis/.ipynb_checkpoints/*
 analysis/results/*
+analysis/old_notebooks
 DiffusionSR.egg-info/*
 logs/*
 misc/*
@@ -15,3 +16,5 @@ misc/*
 *json
 clean_extra_plots.py
 setup.py
+models/__pycache__/*
+runners/__pycache__/*
