@@ -3,7 +3,6 @@ import torch
 import os
 from torch.utils.data import DataLoader
 from datasets.dataset import TemperatureXZDataset
-from runners.train_diffusion import train_diffusion
 from runners.train_mobilenet import train_mobilenet
 from runners.train_rrdn_encoder import pretrain_encoder
 from runners.train_diffusion import DiffusionModel

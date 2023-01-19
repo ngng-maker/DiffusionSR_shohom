@@ -15,6 +15,5 @@ misc/*
 *ckpt 
 *json
 clean_extra_plots.py
-setup.py
 models/__pycache__/*
 runners/__pycache__/*
