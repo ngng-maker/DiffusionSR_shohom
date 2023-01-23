@@ -17,3 +17,4 @@ misc/*
 clean_extra_plots.py
 models/__pycache__/*
 runners/__pycache__/*
+.history

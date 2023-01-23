@@ -2,7 +2,7 @@ import datetime
 import torch
 import os
 from torch.utils.data import DataLoader
-from datasets.dataset import TemperatureXZDataset
+from datasets.dataset import SimulationXZDataset as TemperatureXZDataset
 from runners.train_mobilenet import train_mobilenet
 from runners.train_rrdn_encoder import pretrain_encoder
 from runners.train_diffusion import DiffusionModel
@@ -20,9 +20,9 @@ def dict2namespace(config):
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
-    parser.add_argument('--config', type = str, required = True, help = "Path to the config file")
-    parser.add_argument('--gpu', type = str, required = True, help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
-    parser.add_argument('--modeltype', type = str, required = True, help = "SR model to run. Options are diffusion, encoder, MobileNet")
+    parser.add_argument('--config', type = str, default='implicit_diffusion.yml', help = "Path to the config file")
+    parser.add_argument('--gpu', type = str, default = "0", help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
+    parser.add_argument('--modeltype', type = str, default = 'diffusion', help = "SR model to run. Options are diffusion, encoder, MobileNet")
     parser.add_argument('--restart_dir', type = str, default = '')
     args = parser.parse_args()
 
@@ -160,7 +160,7 @@ if modeltype == 'diffusion':
                  conditioning=conditioning,
                  schedule=schedule,
                  epochs=epochs,
-                 image_size=80,
+                 image_size=40,
                  batch_size=batch_size,
                  learning_rate=learning_rate,
                  device = 'cuda', 

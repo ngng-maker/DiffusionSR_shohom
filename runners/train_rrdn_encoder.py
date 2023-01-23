@@ -31,24 +31,24 @@ from tqdm import tqdm
 # from torchvision.models.feature_extraction import create_feature_extractor
 
 
-os.environ['CUDA_VISIBLE_DEVICES']  = "2"
+# os.environ['CUDA_VISIBLE_DEVICES']  = "2"
 def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
     print("Now training encoder...")
 
-    lr_enc = rrdbnet_upscaled(in_channels = train_dataset.n_steps, out_channels = train_dataset.n_steps)
+    lr_enc = rrdbnet_upscaled(upscale_factor = train_dataset.factor, in_channels = train_dataset.n_steps*train_dataset.num_fields, out_channels = train_dataset.n_steps*train_dataset.num_fields)
 
     # !pip install torchsummary
     
 
-    torchsummary.summary(lr_enc.to('cuda'), input_size = (train_dataset.n_steps, 20, 20))
+    torchsummary.summary(lr_enc.to('cuda'), input_size = (train_dataset.n_steps*train_dataset.num_fields, 20, 20))
 
     
     tensor = torch.tensor(np.ones((1,train_dataset.n_steps,20,20))).float()
 
     
-    plt.imshow(lr_enc(tensor.to('cuda'))[0,0].detach().cpu().numpy())
-    plt.colorbar()
-    plt.show()
+    # plt.imshow(lr_enc(tensor.to('cuda'))[0,0].detach().cpu().numpy())
+    # plt.colorbar()
+    # plt.show()
 
     os.makedirs(results_dir, exist_ok = True)
     # image_size = 80
@@ -83,6 +83,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
         start_time = time.time()
         print('Train Loop')
         for batch_num, (res, hr, lr, upscaled_lr) in tqdm(enumerate(data_loader), total=len(data_loader), ascii=True):
+            # print('hr', hr.shape)
             if len(lr.shape)  == 3:
                 img = (lr.view(lr.shape[0], 1, lr.shape[1], lr.shape[2]).to(device))
                 target = (hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2]).to(device))
@@ -101,35 +102,35 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
 
             if batch_num % 400 == 0:
 
-                plt.clf()
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),train_dataset.unscale_data(target.cpu(), input_type = 'hr')[0][0][40,:], label = 'High-Resolution Target')
-                plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(train_dataset.unscale_data(img.cpu(), input_type = 'lr'))[0][0][10,:], label = 'Low-Resolution Input')
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(train_dataset.unscale_data(new_out.cpu().detach(), input_type = 'hr'))[0][0][40,:], label = 'Output')
-                plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
-                #             legend()
-                plt.legend()
-                plt.ylabel(r'T [K]')
-                plt.xlabel(r'z [$\mu m$]')
-                plt.savefig(results_dir + '/image{}_{}.png'.format(epoch, batch_num))
-                plt.show()
-                plt.clf()
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(target.cpu().numpy())[0][0][40,:], label = 'High-Resolution Target')
-                plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(img.cpu().numpy())[0][0][10,:], label = 'Low-Resolution Input')
-                print(new_out.min(), "MINIMUM")
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(new_out.detach().cpu().numpy())[0][0][40,:], label = 'Output')
-                plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
-        #             legend()
-                plt.legend()
-                plt.ylabel(r'T [K]')
-                plt.xlabel(r'z [$\mu m$]')
-                plt.savefig(results_dir + '/nonormalimage{}_{}.png'.format(epoch, batch_num))
-                plt.show()
-                plt.close('all')
+        #         plt.clf()
+        #         plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),train_dataset.unscale_data(target.cpu(), input_type = 'hr')[0][0][40,:], label = 'High-Resolution Target')
+        #         plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(train_dataset.unscale_data(img.cpu(), input_type = 'lr'))[0][0][10,:], label = 'Low-Resolution Input')
+        #         plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(train_dataset.unscale_data(new_out.cpu().detach(), input_type = 'hr'))[0][0][40,:], label = 'Output')
+        #         plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
+        #         #             legend()
+        #         plt.legend()
+        #         plt.ylabel(r'T [K]')
+        #         plt.xlabel(r'z [$\mu m$]')
+        #         plt.savefig(results_dir + '/image{}_{}.png'.format(epoch, batch_num))
+        #         plt.show()
+        #         plt.clf()
+        #         plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(target.cpu().numpy())[0][0][40,:], label = 'High-Resolution Target')
+        #         plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(img.cpu().numpy())[0][0][10,:], label = 'Low-Resolution Input')
+        #         print(new_out.min(), "MINIMUM")
+        #         plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(new_out.detach().cpu().numpy())[0][0][40,:], label = 'Output')
+        #         plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
+        # #             legend()
+        #         plt.legend()
+        #         plt.ylabel(r'T [K]')
+        #         plt.xlabel(r'z [$\mu m$]')
+        #         plt.savefig(results_dir + '/nonormalimage{}_{}.png'.format(epoch, batch_num))
+        #         plt.show()
+        #         plt.close('all')
 
 
 
                 plt.clf()
-                plt.imshow((train_dataset.unscale_data(hr[0,0].cpu(), input_type = 'hr')).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')[1]).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'High Resolution GT, Epoch = {epoch}')
                 plt.colorbar()
@@ -137,14 +138,14 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
                 plt.clf()
 
 
-                plt.imshow(train_dataset.unscale_data(lr[0,0].cpu().numpy(), input_type = 'lr').T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Low Resolution Downscaled GT, Epoch = {epoch}')
                 plt.colorbar()
 
                 plt.savefig(os.path.join(results_dir, f'lr-downsampled-{epoch}.png'))
                 plt.clf()
 
-                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0, 0], input_type = 'hr').T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Generated HR Sample, Epoch = {epoch}')
                 plt.colorbar()
                 plt.savefig(os.path.join(results_dir, f'generated-sample-{epoch}.png'))
@@ -181,6 +182,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
         
         all_losses = []
         for batch_num, (res, hr, lr, upscaled_lr) in tqdm(enumerate(dev_dataloader), total=len(dev_dataloader), ascii=True):
+            # print(hr.shape)
             if len(lr.shape) == 3:
                 img = (lr.view(lr.shape[0], dev_dataloader.dataset.n_steps, lr.shape[1], lr.shape[2]).to(device))
                 target = (hr.view(hr.shape[0], dev_dataloader.dataset.n_steps, hr.shape[1], hr.shape[2]).to(device))
@@ -194,47 +196,47 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
             testrunning_loss += loss.item()/len(dev_dataloader)
             all_losses.append(testrunning_loss)
             if batch_num % 400 == 0:
-                print(target.shape)
-                plt.clf()
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(dev_dataset.unscale_data(target.cpu(), input_type = 'hr'))[0][0][40,:], label = 'High-Resolution Target')
-                plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(dev_dataset.unscale_data(img.cpu(), input_type = 'lr'))[0][0][10,:], label = 'Low-Resolution Input')
+                # print(target.shape)
+                # plt.clf()
+                # plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(dev_dataset.unscale_data(target.cpu(), input_type = 'hr'))[0][0][40,:], label = 'High-Resolution Target')
+                # plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(dev_dataset.unscale_data(img.cpu(), input_type = 'lr'))[0][0][10,:], label = 'Low-Resolution Input')
 
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(dev_dataset.unscale_data(target.cpu(), input_type = 'hr'))[0][0][40,:], label = 'Output')
-                plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
-                plt.legend()
-                plt.ylabel(r'T [K]')
-                plt.xlabel(r'z [$\mu m$]')
-                plt.savefig(results_dir + '/testimage{}_{}.png'.format(epoch, batch_num))
-                plt.show()
-                plt.clf()
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(target.cpu().numpy())[0][0][40,:], label = 'Test, High-Resolution Target')
-                plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(img.cpu().numpy())[0][0][10,:], label = 'Test, Low-Resolution Input')
+                # plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(dev_dataset.unscale_data(target.cpu(), input_type = 'hr'))[0][0][40,:], label = 'Output')
+                # plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
+                # plt.legend()
+                # plt.ylabel(r'T [K]')
+                # plt.xlabel(r'z [$\mu m$]')
+                # plt.savefig(results_dir + '/testimage{}_{}.png'.format(epoch, batch_num))
+                # plt.show()
+                # plt.clf()
+                # plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(target.cpu().numpy())[0][0][40,:], label = 'Test, High-Resolution Target')
+                # plt.plot(80*5*(np.arange(img.shape[2])/img.shape[2]),(img.cpu().numpy())[0][0][10,:], label = 'Test, Low-Resolution Input')
 
-                plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(new_out.detach().cpu().numpy())[0][0][40,:], label = 'Output')
-                plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
-                plt.legend()
-                plt.ylabel(r'T [K]')
-                plt.xlabel(r'z [$\mu m$]')
-                plt.savefig(results_dir + '/testnonormalimage{}_{}.png'.format(epoch, batch_num))
-                plt.show()
-                plt.close('all')
+                # plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),(new_out.detach().cpu().numpy())[0][0][40,:], label = 'Output')
+                # plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
+                # plt.legend()
+                # plt.ylabel(r'T [K]')
+                # plt.xlabel(r'z [$\mu m$]')
+                # plt.savefig(results_dir + '/testnonormalimage{}_{}.png'.format(epoch, batch_num))
+                # plt.show()
+                # plt.close('all')
 
-                plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
-                # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
-                plt.title(f'Test, High Resolution GT, Epoch = {epoch}')
-                plt.colorbar()
-                plt.savefig(os.path.join(results_dir, f'testhr-sample-{epoch}.png'))
-                plt.clf()
+                # plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                # # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                # plt.title(f'Test, High Resolution GT, Epoch = {epoch}')
+                # plt.colorbar()
+                # plt.savefig(os.path.join(results_dir, f'testhr-sample-{epoch}.png'))
+                # plt.clf()
 
 
-                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr').T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Test, Low Resolution Downscaled GT, Epoch = {epoch}')
                 plt.colorbar()
 
                 plt.savefig(os.path.join(results_dir, f'testlr-downsampled-{epoch}.png'))
                 plt.clf()
 
-                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0, 0], input_type = 'hr').T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Test, Generated HR Sample, Epoch = {epoch}')
                 plt.colorbar()
                 plt.savefig(os.path.join(results_dir, f'testgenerated-sample-{epoch}.png'))

@@ -190,7 +190,11 @@ class PreNorm(nn.Module):
     def forward(self, x):
         x = self.norm(x)
         return self.fn(x)
-
+class Mish(nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, x):
+        return x * torch.tanh(F.softplus(x))
 
 # %%
 class Unet(nn.Module):
@@ -218,7 +222,10 @@ class Unet(nn.Module):
             self.init_conv = nn.Conv2d(channels, init_dim, 7, padding=3)
         if self.conditioning == 'explicit':
             self.init_conv = nn.Conv2d(2*channels, init_dim, 7, padding=3)
-        self.mish = nn.Mish()
+        try:
+            self.mish = nn.Mish()
+        except AttributeError:
+            self.mish = Mish()
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
         
@@ -284,11 +291,14 @@ class Unet(nn.Module):
         )
 
     def forward(self, x, time, x_e = None):
-        x=torch.tensor(x,dtype=torch.float)
+        x=x.float()
         if self.conditioning == 'implicit':
+            # breakpoint()
             x = self.init_conv(x)
             x = self.mish(x)
+            # breakpoint()
             x = x_e +x 
+            # breakpoint()
         elif self.conditioning == 'explicit':
             x = torch.cat((x, x_e), dim = 1)
 
@@ -319,9 +329,9 @@ class Unet(nn.Module):
             x = block2(x, t)
             x = attn(x)
             x = upsample(x)
-
+        # breakpoint()
         return self.final_conv(x)
-# %%
+
 def cosine_beta_schedule(timesteps, s=0.008):
     """
     cosine schedule as proposed in https://arxiv.org/abs/2102.09672

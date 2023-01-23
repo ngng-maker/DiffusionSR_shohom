@@ -1,5 +1,5 @@
 
-root_folder: "datasets/update_v2_laser_velocity_xz_cross_section_data"
+root_folder: "/media/cmu/DATA/francis/Melt_Pool_Data/superresdata_text/ss316l_all_laser_velocity_xz_cross_section_data"
 downscale_method: "direct" 
 n_steps: "1" 
 
@@ -14,7 +14,7 @@ timesteps: 1000
 batch_size: 16
 epochs: 300
 learning_rate: 5e-5
-use_pretrained: False
-encoder_results_dir: 'runs/clean/direct/encoder/2022_12_04_11_32_01/standardize'
+use_pretrained: True
+encoder_results_dir: '/home/cmu/github/LPBFDiffusionSR/runs/direct/encoder/2023_01_23_03_50_44/standardize/n_steps_1'
   
 

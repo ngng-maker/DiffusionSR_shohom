@@ -233,6 +233,8 @@ class RRDBNet(nn.Module):
         return out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # breakpoint()
+        # print(x.shape)
         return self._forward_impl(x)
 
     def _initialize_weights(self) -> None:
@@ -309,8 +311,8 @@ def rrdbnet_x2(**kwargs: Any) -> RRDBNet:
     return model
 
 
-def rrdbnet_encoder(**kwargs: Any) -> RRDBNet:
-    model = RRDBNet(upscale_factor=4, **kwargs)
+def rrdbnet_encoder(upscale_factor, **kwargs: Any) -> RRDBNet:
+    model = RRDBNet(upscale_factor=upscale_factor, **kwargs)
 
     return model
 

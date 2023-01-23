@@ -79,7 +79,7 @@ def frame_tick(frame_width=2, tick_width=1.5):
     plt.tick_params(direction='in',
                     width=tick_width)
 
-def forwardpass(lr_enc, sample):
+def forwardpass(lr_enc, sample, factor = 4):
     '''
     Pass the array "sample" through the RRDB encoder
     '''
@@ -88,8 +88,9 @@ def forwardpass(lr_enc, sample):
     x = lr_enc.conv2(x)
     x = F.interpolate(x, scale_factor=2, mode='nearest')
     x = lr_enc.upsampling1(x)
-    x = F.interpolate(x, scale_factor=2, mode='nearest')
-    x = lr_enc.upsampling2(x)
+    if factor == 4:
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = lr_enc.upsampling2(x)
     x = lr_enc.conv3(x)
     return x
 
@@ -160,19 +161,20 @@ class DiffusionModel():
         self.results_folder = Path(self.results_folder)
         self.results_folder.mkdir(exist_ok=True)
         self.start_epoch = 0
-        self.channels = self.train_dataset.n_steps
+        self.channels = self.train_dataset.n_steps*self.train_dataset.num_fields
         self.train_loader = DataLoader(
             self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
         self.dev_loader = DataLoader(
             self.dev_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
         self.lr_enc = self.initialize_encoder()
         self.loss_type = loss_type
+        # breakpoint()
         self.model = Unet(
             dim=image_size,
             channels=self.channels,
             dim_mults=(1, 2, 4,),
             conditioning=conditioning,
-            out_dim=1
+            out_dim=self.train_dataset.n_steps*self.train_dataset.num_fields
         )
         self.initialize_variance_schedule()
         self.model.to(self.device)
@@ -231,11 +233,11 @@ class DiffusionModel():
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
     def p_losses(self, denoise_model, x_start, t, noise=None, loss_type="l1", x_e=None):
         if noise is None:
-            noise = torch.randn_like(x_start)
+            noise = torch.randn_like(x_start, dtype = torch.float32)
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         predicted_noise = denoise_model(x_noisy, t, x_e=x_e)
-
+        # breakpoint()
         if loss_type == 'l1':
             loss = F.l1_loss(noise, predicted_noise)
         elif loss_type == 'l2':
@@ -251,8 +253,8 @@ class DiffusionModel():
         '''
         Inititalize the low resolution encoder for converting the LR data to the preliminary HR space
         '''
-        lr_enc = rrdbnet_encoder(in_channels=self.train_dataset.n_steps,
-                        out_channels=self.train_dataset.n_steps, num_blocks=8)
+        lr_enc = rrdbnet_encoder(upscale_factor = self.train_dataset.factor, in_channels=self.train_dataset.n_steps*self.train_dataset.num_fields,
+                        out_channels=self.train_dataset.n_steps*self.train_dataset.num_fields, num_blocks=8)
 
         lr_enc.to(self.device)
         # Optimizer is reinitialized here to make sure outputs are reproducible, encoder is not trained
@@ -319,7 +321,7 @@ class DiffusionModel():
 
           
         all_images_list = list(map(lambda n: self.sample(self.model, timesteps=self.timesteps, x_e=x_e,
-                            image_size=80,  batch_size=batch.shape[0], channels=self.channels), batches))[0]
+                            image_size=self.train_dataset.img_shape,  batch_size=batch.shape[0], channels=self.channels), batches))[0]
         all_images = torch.stack(all_images_list, dim=0)
 
         states = [
@@ -331,7 +333,7 @@ class DiffusionModel():
 
         torch.save(states, os.path.join(self.results_folder, "ckpt.pth"))
         plt.imshow(dataset.unscale_data(all_images.numpy(
-        )[-1, 0][0], input_type='hr').T, origin='lower', cmap='jet', vmin=293, vmax=5000)
+        )[-1, 0], input_type='hr')[1].T, origin='lower', cmap='jet', vmin=293, vmax=5000)
 
 
         plt.title(f'Conditional Sampled High Resolution, Epoch = {epoch}')
@@ -343,8 +345,8 @@ class DiffusionModel():
                 
 
 
-        plt.imshow((dataset.unscale_data(hr[0, 0].cpu(
-        ), input_type='hr')).T, origin='lower', cmap='jet', vmin=293, vmax=5000)
+        plt.imshow((dataset.unscale_data(hr[0].cpu(
+        ).numpy(), input_type='hr')[1]).T, origin='lower', cmap='jet', vmin=293, vmax=5000)
         
         plt.title(f'High Resolution GT, Epoch = {epoch}')
         frame_tick()
@@ -353,8 +355,8 @@ class DiffusionModel():
         plt.savefig(os.path.join(self.results_folder,
                     f'{split}-hr-sample-{epoch}.png'))
         plt.clf()
-        plt.imshow(dataset.unscale_data(upscaled_lr[0, 0].numpy(
-        ), input_type='upscaled_lr').T, origin='lower', cmap='jet', vmin=293, vmax=5000)
+        plt.imshow(dataset.unscale_data(upscaled_lr[0].numpy(
+        ), input_type='upscaled_lr')[1].T, origin='lower', cmap='jet', vmin=293, vmax=5000)
         plt.title(f'Low Resolution Upscaled GT, Epoch = {epoch}')
         plt.colorbar()
         frame_tick()
@@ -363,8 +365,8 @@ class DiffusionModel():
                     f'{split}-lr-sample-{epoch}.png'))
         plt.clf()
 
-        plt.imshow(dataset.unscale_data(true_lr[0, 0].numpy(
-        ), input_type='lr').T, origin='lower', cmap='jet', vmin=293, vmax=5000)
+        plt.imshow(dataset.unscale_data(true_lr[0].numpy(
+        ), input_type='lr')[1].T, origin='lower', cmap='jet', vmin=293, vmax=5000)
         plt.title(f'Low Resolution Downscaled GT, Epoch = {epoch}')
         plt.colorbar()
 
@@ -383,8 +385,9 @@ class DiffusionModel():
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
             losses = []
             self.model.train()
-            for step, (res, hr, true_lr, upscaled_lr) in enumerate(self.train_loader):
+            for step, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(self.train_loader), total = len(self.train_loader)):
                 # Create batch for diffusion training
+                
                 batch = hr
                 num_batch = batch.shape[0]
                 len_batch = batch.shape[1]
@@ -400,7 +403,7 @@ class DiffusionModel():
                 
                 self.optimizer.zero_grad()
                 if self.conditioning == 'implicit':
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float())
+                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(), factor = self.train_dataset.factor)
                 else:
                     x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
                 
@@ -413,6 +416,7 @@ class DiffusionModel():
                 loss = self.p_losses(self.model, batch, t, loss_type=self.loss_type, x_e=x_e)
 
                 losses.append(loss.item())
+                # breakpoint()
                 loss.backward()
                 self.optimizer.step()
 
@@ -439,7 +443,7 @@ class DiffusionModel():
                     true_lr = true_lr.view(
                         true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(self.device).float()
                 if self.conditioning ==  'implicit':
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float())
+                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(),  factor = self.train_dataset.factor)
                 elif self.conditioning == 'explicit':
                     x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
                 
@@ -693,7 +697,7 @@ def train_diffusion(results_folder,
                 true_lr = true_lr.view(
                     true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(device).float()
             if conditioning == 'implicit':
-                x_e = forwardpass(lr_enc, true_lr.to(device).float())
+                x_e = forwardpass(lr_enc, true_lr.to(device).float(), factor = train_dataset.factor)
             else:
                 x_e = upscaled_lr.to(device).float().repeat(1,1,1, 1)
             optimizer.zero_grad()
@@ -801,7 +805,7 @@ def train_diffusion(results_folder,
                 true_lr = true_lr.view(
                     true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(device).float()
             if conditioning ==  'implicit':
-                x_e = forwardpass(lr_enc, true_lr.to(device).float())
+                x_e = forwardpass(lr_enc, true_lr.to(device).float(),factor = train_dataset.factor)
             elif conditioning == 'explicit':
                 x_e = upscaled_lr.to(device).float().repeat(1,1,1, 1)
             
