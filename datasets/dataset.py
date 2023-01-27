@@ -336,10 +336,10 @@ class SimulationXZDataset(Dataset):
         #     self.root_folder, split, 'LR', downscale_method, '1x')+'/'
         # self.upscaled_lr_path = os.path.join(
         #     self.root_folder, split, 'LR', downscale_method, '4x')+'/'
-        self.lr_paths = np.array(
-            [self.lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object')
-        self.hr_paths = np.array(
-            [self.hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object')
+        self.lr_paths = np.sort(np.array(
+            [self.lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+        self.hr_paths = np.sort(np.array(
+            [self.hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
         self.upscaled_lr_paths = self.hr_paths
         test_hr_shape = list(np.load(self.hr_paths[0]).shape)
         test_lr_shape = list(np.load(self.lr_paths[0]).shape)
@@ -450,27 +450,47 @@ class SimulationXZDataset(Dataset):
                 self.upscaled_lr_paths[index], allow_pickle=True)
             single_true_lr = np.load(self.lr_paths[index], allow_pickle=True)
             num_fields = self.num_fields
-            hr = np.empty(( single_hr.shape[0], single_hr.shape[1], self.n_steps*num_fields))
-            upscaled_lr = np.empty(( single_upscaled_lr.shape[0], single_upscaled_lr.shape[1], self.n_steps*num_fields))
-            true_lr = np.empty(( single_true_lr.shape[0], single_true_lr.shape[1], self.n_steps*num_fields))
-            hr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_hr
-            upscaled_lr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_upscaled_lr
-            true_lr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_true_lr
-            
-            for step in reversed(range(2, self.n_steps + 1)):
-                # print("HERE")
-                if index - step > 0:
-                    # print(self.n_steps-step, 'steps')
-                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.hr_paths[index-  step], allow_pickle=True)
-                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.lr_paths[index - step], allow_pickle=True)
-                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.upscaled_lr_paths[index - step], allow_pickle=True)
+            hr = np.empty(( self.n_steps*num_fields,single_hr.shape[0], single_hr.shape[1],))
+            upscaled_lr = np.empty(( self.n_steps*num_fields, single_upscaled_lr.shape[0], single_upscaled_lr.shape[1],))
+            true_lr = np.empty((  self.n_steps*num_fields, single_true_lr.shape[0], single_true_lr.shape[1]))
+            if num_fields > 1:
+                hr = np.empty(( single_hr.shape[0], single_hr.shape[1], self.n_steps*num_fields))
+                upscaled_lr = np.empty(( single_upscaled_lr.shape[0], single_upscaled_lr.shape[1], self.n_steps*num_fields))
+                true_lr = np.empty(( single_true_lr.shape[0], single_true_lr.shape[1], self.n_steps*num_fields))
+                hr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_hr
+                upscaled_lr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_upscaled_lr
+                true_lr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_true_lr
+                
+                for step in reversed(range(2, self.n_steps + 1)):
+                    # print("HERE")
+                    if index - step > 0:
+                        # print(self.n_steps-step, 'steps')
+                        hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.hr_paths[index-  step], allow_pickle=True)
+                        true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.lr_paths[index - step], allow_pickle=True)
+                        upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.load(self.upscaled_lr_paths[index - step], allow_pickle=True)
 
-                else:
-                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_hr)*293
-                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_true_lr)*293
-                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_upscaled_lr)*293
+                    else:
+                        hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_hr)*293
+                        true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_true_lr)*293
+                        upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = np.ones_like(single_upscaled_lr)*293
             # breakpoint()
-           
+            else:
+                hr[self.n_steps-1] = single_hr
+                upscaled_lr[self.n_steps-1] = single_upscaled_lr
+                true_lr[self.n_steps-1] = single_true_lr
+                for step in reversed(range(2, self.n_steps + 1)):
+                    # print("HERE")
+                    if index - step > 0:
+                        # print(self.n_steps-step, 'steps')
+                        hr[self.n_steps - step] = np.load(self.hr_paths[index-  step], allow_pickle=True)
+                        true_lr[self.n_steps - step] = np.load(self.lr_paths[index - step], allow_pickle=True)
+                        upscaled_lr[self.n_steps - step] = np.load(self.upscaled_lr_paths[index - step], allow_pickle=True)
+
+                    else:
+                        hr[self.n_steps - step] = np.ones_like(single_hr)*293
+                        true_lr[self.n_steps - step] = np.ones_like(single_true_lr)*293
+                        upscaled_lr[self.n_steps - step] = np.ones_like(single_upscaled_lr)*293
+
             # breakpoint()
             residual = hr - upscaled_lr
             hr[hr > self.threshold_T] = self.threshold_T
@@ -495,12 +515,12 @@ class SimulationXZDataset(Dataset):
                 upscaled_lr = (upscaled_lr - self.t_min) / \
                     (self.t_max - self.t_min)
                 res = (residual - self.t_min)/(self.t_max - self.t_min)
-           
-            hr = np.moveaxis(hr, -1, 0)
-            res = np.moveaxis(res, -1, 0)
- 
-            true_lr = np.moveaxis(true_lr, -1, 0)
-            upscaled_lr = np.moveaxis(upscaled_lr, -1, 0)
+            if num_fields > 1:
+                hr = np.moveaxis(hr, -1, 0)
+                res = np.moveaxis(res, -1, 0)
+    
+                true_lr = np.moveaxis(true_lr, -1, 0)
+                upscaled_lr = np.moveaxis(upscaled_lr, -1, 0)
             if self.return_info:
                 info = torch.tensor([power, velocity, time])
                 return res, hr, true_lr, upscaled_lr, info
@@ -573,10 +593,11 @@ class SimulationXZDataset(Dataset):
     def unscale_data(self, array, input_type):
         if self.normalize == 'standardize':
             # breakpoint()
-            if torch.is_tensor(array):
-                array = torch.moveaxis(array, 0, -1)
-            else:
-                array =  np.moveaxis(array, 0, -1)
+            if self.num_fields > 1:
+                if torch.is_tensor(array):
+                    array = torch.moveaxis(array, 0, -1)
+                else:
+                    array =  np.moveaxis(array, 0, -1)
             if input_type == 'hr':
                 unscaledarray = array*self.std_hr + self.mean_hr
             if input_type == 'lr':
@@ -585,10 +606,11 @@ class SimulationXZDataset(Dataset):
                 unscaledarray = array*self.std_upscaled_lr + self.mean_upscaled_lr
             if input_type == 'residual':
                 unscaledarray = array*self.std_resid + self.mean_resid
-            if torch.is_tensor(unscaledarray):
-                unscaledarray = torch.moveaxis(unscaledarray, -1,0 )
-            else:
-                unscaledarray = np.moveaxis(unscaledarray, -1, 0)
+            if self.num_fields > 1:
+                if torch.is_tensor(unscaledarray):
+                    unscaledarray = torch.moveaxis(unscaledarray, -1,0 )
+                else:
+                    unscaledarray = np.moveaxis(unscaledarray, -1, 0)
             return unscaledarray
         elif self.normalize == 'rescaling':
             unscaledarray = (0.5 + array/2)*(self.t_max - self.t_min) + self.t_min

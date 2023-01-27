@@ -453,7 +453,7 @@ def get_profile(image, mesh = 5):
     profile = np.array(profile)
     keyholeprofile = np.array(keyholeprofile)
     return(profile, keyholeprofile)
-def plot_images(input, result, target, modeltype, split = 'train', timesteps = 200):
+def plot_images(input, result, target, modeltype, split = 'train', timesteps = 200, title = '', timestep = None):
     
     result  = result
     scaling_factor = 1.5
@@ -461,7 +461,7 @@ def plot_images(input, result, target, modeltype, split = 'train', timesteps = 2
     min_temp = 293
     max_temp = 5000
     method = 'Direct'
-
+    # os.makedirs('lrenc_saved_figures', exist_ok = True)
     plt.figure(dpi = dpi, figsize = np.array([4,3])*scaling_factor)
     plt.imshow(input.T, cmap = 'jet', vmin = min_temp, vmax=max_temp, origin = 'lower',  extent=[0*5,80*5,0*5,80*5])
 
@@ -470,8 +470,15 @@ def plot_images(input, result, target, modeltype, split = 'train', timesteps = 2
     clb = plt.colorbar()
     clb.ax.set_title(r'T$[K]$',fontsize=10)
     frame_tick()
-    plt.title('[{} Data] Low Resolution, {}'.format(split, method), fontsize = 10)
-    plt.show()
+    if timestep is None:
+        plt.title('[{} Data] Low Resolution, {}'.format(split, method), fontsize = 10)
+    else:
+        plt.title(r'[{} Data] Low Resolution, {}, $i$ = {}'.format(split, method, timestep), fontsize = 10)
+        
+    plt.savefig( title + 'input.png')
+
+    # plt.show()
+    plt.clf()
     plt.figure(dpi = dpi, figsize = np.array([4,3])*scaling_factor)
 
     plt.imshow((target).T, cmap = 'jet', vmin = min_temp, vmax=max_temp, origin = 'lower',  extent=[0*5,80*5,0*5,80*5])
@@ -481,8 +488,15 @@ def plot_images(input, result, target, modeltype, split = 'train', timesteps = 2
     clb = plt.colorbar()
     clb.ax.set_title(r'T$[K]$',fontsize=10)
     frame_tick()
-    plt.title('[{} Data] High Resolution'.format(split), fontsize = 10)
-    plt.show()
+    # plt.title('[{} Data] High Resolution'.format(split), fontsize = 10)
+    plt.title(r'[{} Data] High Resolution, {}, $i$ = {}'.format(split, method, timestep), fontsize = 10)
+    # plt.savefig()
+    # plt.savefig('lrenc_saved_figures/target' + title + '.png')
+    plt.savefig( title + 'target.png')
+
+
+    # plt.show()
+    plt.clf()
 
     plt.figure(dpi = dpi, figsize = np.array([4,3])*scaling_factor)
 
@@ -493,8 +507,16 @@ def plot_images(input, result, target, modeltype, split = 'train', timesteps = 2
     clb = plt.colorbar()
     clb.ax.set_title(r'T$[K]$',fontsize=10)
     frame_tick()
-    plt.title('[{} Data], {} Timesteps, {} Output'.format(split,str(timesteps), modeltype), fontsize = 10)
-    plt.show()
+    # plt.title('[{} Data], {} Timesteps, {} Output'.format(split,str(timesteps), modeltype), fontsize = 10)
+    plt.title(r'[{} Data], {} Timesteps, {} Output, $i$ = {}'.format(split,str(timesteps), modeltype, str(timestep)), fontsize = 10)
+    # plt.savefig()
+    # plt.savefig('lrenc_saved_figures/result'+ title + '.png')
+    plt.savefig( title + 'result.png')
+
+
+    # plt.show()
+    plt.clf()
+    plt.close('all')
 def load_mobilenet(mobilenet_results_dir):
     device = 'cuda'
     mobilenet = MobileNetv2_SISR()
@@ -535,7 +557,7 @@ def load_diffusion(diffusion_results_dir):
     return model
 def load_encoder(encoder_results_dir):
     device = 'cuda'
-    lr_enc = rrdbnet_x4(num_blocks = 8)
+    lr_enc = rrdbnet_x4(upscale_factor = 4, num_blocks = 8)
 
     lr_enc.to(device)
     lr_encoptimizer = torch.optim.Adam(lr_enc.parameters())

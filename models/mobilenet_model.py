@@ -73,7 +73,7 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 class MobileNetv2_SISR(nn.Module):
-    def __init__(self, n_channels):
+    def __init__(self, n_channels = 1):
         super(MobileNetv2_SISR, self).__init__()
         self.dummy_param = nn.Parameter(torch.empty(0))
         self.conv1 = nn.Sequential(

@@ -2,6 +2,7 @@
 runs/*
 misc/*
 datasets/update_v2_laser_velocity_xz_cross_section_data/*
+datasets/**/*npy
 datasets/__pycache__/*
 analysis/__pycache__/*
 analysis/.ipynb_checkpoints/*
@@ -18,3 +19,9 @@ clean_extra_plots.py
 models/__pycache__/*
 runners/__pycache__/*
 .history
+*tar
+*zip
+*flag 
+*__pycache__
+*pyc 
+*zip

@@ -20,9 +20,9 @@ def dict2namespace(config):
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
-    parser.add_argument('--config', type = str, default='implicit_diffusion.yml', help = "Path to the config file")
+    parser.add_argument('--config', type = str, default='mobilenet.yml', help = "Path to the config file")
     parser.add_argument('--gpu', type = str, default = "0", help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
-    parser.add_argument('--modeltype', type = str, default = 'diffusion', help = "SR model to run. Options are diffusion, encoder, MobileNet")
+    parser.add_argument('--modeltype', type = str, default = 'mobilenet', help = "SR model to run. Options are diffusion, encoder, MobileNet")
     parser.add_argument('--restart_dir', type = str, default = '')
     args = parser.parse_args()
 
@@ -160,7 +160,7 @@ if modeltype == 'diffusion':
                  conditioning=conditioning,
                  schedule=schedule,
                  epochs=epochs,
-                 image_size=40,
+                 image_size=train_dataset.img_shape,
                  batch_size=batch_size,
                  learning_rate=learning_rate,
                  device = 'cuda', 
