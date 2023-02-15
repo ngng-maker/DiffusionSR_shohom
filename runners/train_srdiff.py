@@ -1,13 +1,18 @@
+import argparse
 import datetime
-import torch
 import os
+import shutil
+
+import torch
+import yaml
+from datasets.dataset import SimulationXZDataset
 from torch.utils.data import DataLoader
-from datasets.dataset import SimulationXZDataset as TemperatureXZDataset
+
+from runners.train_diffusion import DiffusionModel
 from runners.train_mobilenet import train_mobilenet
 from runners.train_rrdn_encoder import pretrain_encoder
-from runners.train_diffusion import DiffusionModel
-import argparse
-import yaml
+
+
 def dict2namespace(config):
     namespace = argparse.Namespace()
     for key, value in config.items():
@@ -20,8 +25,8 @@ def dict2namespace(config):
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
-    parser.add_argument('--config', type = str, default='mobilenet.yml', help = "Path to the config file")
-    parser.add_argument('--gpu', type = str, default = "0", help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
+    parser.add_argument('--config', type = str, default='implicit_diffusion.yml', help = "Path to the config file")
+    parser.add_argument('--gpu', type = str, default = "7", help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
     parser.add_argument('--modeltype', type = str, default = 'mobilenet', help = "SR model to run. Options are diffusion, encoder, MobileNet")
     parser.add_argument('--restart_dir', type = str, default = '')
     args = parser.parse_args()
@@ -42,7 +47,9 @@ downscale_method = new_config.downscale_method
 use_pretrained= new_config.use_pretrained
 if args.restart_dir == '':
     restart = False
+    restart_dir = ''
 else:
+    restart = True
     restart_dir = args.restart_dir
 use_pretrained = new_config.use_pretrained
 if use_pretrained:
@@ -52,26 +59,37 @@ schedule = new_config.schedule
 n_steps = int(new_config.n_steps)
 timesteps = int(new_config.timesteps)
 batch_size= int(new_config.batch_size)
+encoding_flag = bool(new_config.encoding)
+if encoding_flag:
+    encoder = 'encoded'
+else:
+    encoder = 'upscaled'
+# breakpoint()
+if new_config.fields == 'temperature':
+    field_names = ['temperature']
+elif new_config.fields == 'all':
+    field_names = None
+print(field_names)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = int(new_config.epochs)
 learning_rate = float(new_config.learning_rate)
 
 # Define dataset
-train_dataset = TemperatureXZDataset(downscale_method=downscale_method,
+train_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                      normalize=normalize_method,
                                      split='train',
                                      root_folder=root_folder,
-                                     n_steps=n_steps)
-test_dataset = TemperatureXZDataset(downscale_method=downscale_method,
+                                     n_steps=n_steps, field_names = field_names)
+test_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                     normalize=normalize_method,
                                     split='test',
                                     root_folder=root_folder,
-                                    n_steps=n_steps)
-dev_dataset = TemperatureXZDataset(downscale_method=downscale_method,
+                                    n_steps=n_steps, field_names = field_names)
+dev_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                    normalize=normalize_method,
                                    split='dev',
                                    root_folder=root_folder,
-                                   n_steps=n_steps)
+                                   n_steps=n_steps, field_names = field_names)
 
 # Define dataloader
 dataloader = DataLoader(train_dataset,
@@ -115,54 +133,53 @@ if modeltype == 'mobilenet':
                     learning_rate =learning_rate)
 
 if modeltype == 'diffusion':
-    if use_pretrained:
-        print("Using pretrained model ... , " , encoder_results_dir)
-    else:
-        print('Pre-training encoder from scratch...')
-        # Train encoder model
-        encoder_results_dir = os.path.join('runs',   downscale_method, 'encoder', datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
-        os.makedirs(encoder_results_dir, exist_ok=True)
-        pretrain_encoder(encoder_results_dir,
-                         train_dataset=train_dataset,
-                         dev_dataset=dev_dataset,
-                         test_dataset=test_dataset)
+    if encoding_flag:
+        if use_pretrained:
+            print("Using pretrained model ... , " , encoder_results_dir)
+        else:
+            print('Pre-training encoder from scratch...')
+            # Train encoder model
+            encoder_results_dir = os.path.join('runs',   downscale_method, 'encoder', datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
 
+            os.makedirs(encoder_results_dir, exist_ok=True)
+            shutil.copy(os.path.join("configs", args.config), os.path.join(encoder_results_dir, 'configuration.yml'))
+            pretrain_encoder(encoder_results_dir,
+                            train_dataset=train_dataset,
+                            dev_dataset=dev_dataset,
+                            test_dataset=test_dataset)
+    else:
+        encoder_results_dir = 'no_encoder_used'
     if restart: # Resume training
         diffusion_results_dir = restart_dir
     else:
-        diffusion_results_dir = os.path.join('runs',  downscale_method, modeltype + residual_tag+conditioning, datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
+        diffusion_results_dir = os.path.join('runs',  downscale_method, modeltype + residual_tag+conditioning+encoder, datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
     # Train diffusion model
     os.makedirs(diffusion_results_dir, exist_ok=True)
     message = ''
+    shutil.copy(os.path.join("configs", args.config), os.path.join(diffusion_results_dir, 'configuration.yml'))
     with open(os.path.join(diffusion_results_dir, 'information.txt'), 'w') as f:
-        f.write('schedule: {}, timesteps: {}'.format(schedule, str(timesteps)) + '\n '+ 'pretrained_encoder: {}'.format(encoder_results_dir) + '\n  diffusion timesteps {}'.format(timesteps))
+        f.write(f'schedule: {schedule}, timesteps: {timesteps} fields: temp' + '\n '+ f'pretrained_encoder: {encoder_results_dir}' + f'\n  diffusion timesteps {timesteps}')
     if restart:
         with open(os.path.join(diffusion_results_dir, 'information_restart.txt'), 'w') as f:
-            f.write('schedule: {}, timesteps: {}'.format(schedule, str(timesteps)) + '\n '+ 'pretrained_encoder: {}'.format(encoder_results_dir) + '\n  diffusion timesteps {}'.format(timesteps))
+            f.write(f'schedule: {schedule}, timesteps: {timesteps}, fields: temp' + '\n '+ f'pretrained_encoder: {encoder_results_dir}' + f'\n  diffusion timesteps {timesteps}')
     print("Training Diffusion...")
-    # train_diffusion(results_folder= diffusion_results_dir,
-    #                 lr_encoder_folder=encoder_results_dir,
-    #                 train_dataset=train_dataset,
-    #                 dev_dataset=dev_dataset,
-    #                 test_dataset=test_dataset,
-    #                 timesteps=timesteps,
-    #                 restart=restart,
-    #                 restart_dir=diffusion_results_dir,
-    #                 conditioning = conditioning,
-    #                 schedule=schedule,
-    #                 device = device)
-    diffusion_model = DiffusionModel(results_folder =diffusion_results_dir,
-                 lr_encoder_folder =encoder_results_dir ,
-                 train_dataset = train_dataset,
-                 dev_dataset= dev_dataset,
-                 test_dataset = test_dataset,
-                 timesteps=timesteps,
-                 conditioning=conditioning,
-                 schedule=schedule,
-                 epochs=epochs,
-                 image_size=train_dataset.img_shape,
-                 batch_size=batch_size,
-                 learning_rate=learning_rate,
-                 device = 'cuda', 
-                 loss_type = 'huber')
-    diffusion_model.train()
+
+    diffusion_model = DiffusionModel(results_folder=diffusion_results_dir,
+                                     lr_encoder_folder=encoder_results_dir,
+                                     train_dataset=train_dataset,
+                                     dev_dataset=dev_dataset,
+                                     test_dataset=test_dataset,
+                                     timesteps=timesteps,
+                                     conditioning=conditioning,
+                                     encoding=encoding_flag,
+                                     schedule=schedule,
+                                     device='cuda',
+                                     )
+    diffusion_model.train(epochs=epochs,
+                          restart=restart,
+                          restart_dir=restart_dir,
+
+                          batch_size=batch_size,
+                          learning_rate=learning_rate,
+                          loss_type='huber'
+                          )

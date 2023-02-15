@@ -45,7 +45,7 @@ def train_mobilenet(results_folder, train_dataset, dev_dataset, test_dataset, nu
     learning_rate = 1e-4
 
 
-    model = MobileNetv2_SISR(train_dataset.n_steps)
+    model = MobileNetv2_SISR(train_dataset.n_steps*train_dataset.num_fields)
     model.apply(init_weights)
     device = torch.device("cuda")
     model.eval()
@@ -106,7 +106,7 @@ def train_mobilenet(results_folder, train_dataset, dev_dataset, test_dataset, nu
         if epoch % 10 == 0:
             test_predictions(model, test_loader, epoch  = epoch, img_dir = img_dir)
         train_loss = train_epoch(model, train_loader, criterion, optimizer, epoch = epoch, image_dir=img_dir)
-        dev_loss, psnr_les, psnr, ssim_les, ssim_dns = dev_epoch(model, dev_loader, criterion)
+        dev_loss, psnr_les, psnr, ssim_les, ssim_dns = dev_epoch(model, dev_loader, criterion, epoch = epoch, image_dir=img_dir)
         Train_Loss.append(train_loss)
         print(Train_Loss)
         Dev_Loss.append(dev_loss)

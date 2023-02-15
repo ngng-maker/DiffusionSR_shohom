@@ -201,6 +201,7 @@ class Unet(nn.Module):
     def __init__(
         self,
         dim,
+        encoder_flag,
         init_dim=None,
         out_dim=None,
         dim_mults=(1, 2, 4, 8),
@@ -216,12 +217,16 @@ class Unet(nn.Module):
         # determine dimensions
         self.channels = channels
         self.conditioning = conditioning
+        self.encoder_flag = encoder_flag
         init_dim = default(init_dim, 64)
         # init_dim = default(init_dim, dim // 3 * 2)
         if self.conditioning == 'implicit':
             self.init_conv = nn.Conv2d(channels, init_dim, 7, padding=3)
         if self.conditioning == 'explicit':
-            self.init_conv = nn.Conv2d(2*channels, init_dim, 7, padding=3)
+            if not self.encoder_flag:
+                self.init_conv = nn.Conv2d(2*channels, init_dim, 7, padding=3)
+            else:
+                self.init_conv = nn.Conv2d(channels+ init_dim, init_dim, 7, padding = 3)
         try:
             self.mish = nn.Mish()
         except AttributeError:

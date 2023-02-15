@@ -197,21 +197,17 @@ def SSIM(op, t, batch_size):
     return ssim
 
 def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir = ''):
+    dataset = data_loader.dataset
     model.train()
-    
+    factor = data_loader.dataset.factor
     running_loss = 0
     avg_psnr = 0
     avg_psnr_les = 0
     psnr = None
     start_time = time.time()
     print('Train Loop')
+    temp_idx = data_loader.dataset.field_names.index('temperature')
     for batch_num, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(data_loader), total=len(data_loader), ascii=True):
-
-        # if np.random.random() > 0.5:
-        #     #flip both img and target
-
-        #     img = torch.flip(img, dims = [2])#[0][0]#torch.flip(img, dims =0)
-        #     target =torch.flip(target, dims = [2])#[0][0]  #torch.flip(target, dims =0)
         if len(upscaled_lr.shape)< 4:
             img = upscaled_lr.view(upscaled_lr.shape[0], 1, upscaled_lr.shape[1], upscaled_lr.shape[2])
             target = hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2])
@@ -234,21 +230,44 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
         running_loss += loss.item()/len(data_loader)
         avg_psnr += psnr.item()/len(data_loader)
         avg_psnr_les += psnr_les.item()/len(data_loader)
-#         print(img.shape, target.shape, psnr, not psnr)
-
+        
         if batch_num % 500 == 0:
-            plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),img[0][0][40,:].cpu().numpy(),label = 'Low-Resolution Input')
-            plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),target[0][0][40,:].cpu().numpy(), label = 'High-Resolution Input')
-            plt.plot(80*5*(np.arange(target.shape[2])/target.shape[2]),new_out[0][0][40,:].cpu().detach().numpy(), label = 'Output')
+            plot_directory = image_dir + '/epoch_{}/good_train_examples/'.format(epoch)
+            os.makedirs(plot_directory,exist_ok=True)
+
+
+            plt.imshow(dataset.unscale_data(true_lr[0].detach().cpu().numpy(), input_type = 'lr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+            plt.title(f'Train, Low Resolution Downscaled GT, Epoch = {epoch}')
+            plt.colorbar()
+
+            plt.savefig(os.path.join(plot_directory, f'trainlr-downsampled-{epoch}.png'))
+            plt.clf()
+
+            plt.imshow(dataset.unscale_data(new_out.detach().cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+            plt.title(f'Train, Generated HR Sample, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(plot_directory, f'traingenerated-sample-{epoch}.png'))
+            plt.clf()
+
+            plt.imshow(dataset.unscale_data(hr.cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+            plt.title(f'Train, Generated HR Sample, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(plot_directory, f'trainhr-sample-{epoch}.png'))
+            plt.clf()
+            plt.close('all')
+
+
+            plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),img[0][temp_idx][int(10*factor),:].cpu().numpy(),label = 'Low-Resolution Input')
+            plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),target[0][temp_idx][int(10*factor),:].cpu().numpy(), label = 'High-Resolution Input')
+            plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),new_out[0][temp_idx][int(10*factor),:].cpu().detach().numpy(), label = 'Output')
             plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
 #             legend()
             plt.legend()
             plt.ylabel(r'T [K]')
             plt.xlabel(r'z [$\mu m$]')
-            os.makedirs(image_dir + '/epoch_{}/good_train_examples/'.format(epoch),exist_ok=True)
-            plt.savefig(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num), bbox_inches='tight')
-            print('saved')
-            print(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num))
+            plt.savefig(os.path.join(plot_directory, 'line_plot{}.png'.format(epoch)), bbox_inches='tight')
+            # print('saved')
+            # print(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num))
             plt.clf()
             
             
@@ -266,7 +285,7 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
     return running_loss
 
 
-def dev_epoch(model, data_loader, criterion):
+def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
     with torch.no_grad():
         model.eval()
 
@@ -279,6 +298,10 @@ def dev_epoch(model, data_loader, criterion):
         start_time = time.time()
         print('Dev Loop')
         print(' ')
+        dataset = data_loader.dataset
+        temp_idx = data_loader.dataset.field_names.index('temperature')
+
+        factor = dataset.factor
         loss = None
         for batch_num, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(data_loader), total=len(data_loader), ascii=True):
             if len(upscaled_lr.shape) == 3:
@@ -302,7 +325,44 @@ def dev_epoch(model, data_loader, criterion):
             avg_psnr_les += psnr_les.item()/len(data_loader)
             # avg_ssim_dns += ssim_dns.item()/len(data_loader)
             # avg_ssim_les += ssim_les.item()/len(data_loader)
+            if batch_num % 500 == 0:
+                plot_directory = image_dir + '/epoch_{}/good_train_examples/'.format(epoch)
+                os.makedirs(plot_directory,exist_ok=True)
 
+
+                plt.imshow(dataset.unscale_data(true_lr[0].detach().cpu().numpy(), input_type = 'lr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.title(f'Test, Low Resolution Downscaled GT, Epoch = {epoch}')
+                plt.colorbar()
+
+                plt.savefig(os.path.join(plot_directory, f'testlr-downsampled-{epoch}.png'))
+                plt.clf()
+
+                plt.imshow(dataset.unscale_data(output.detach().cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.title(f'Test, Generated HR Sample, Epoch = {epoch}')
+                plt.colorbar()
+                plt.savefig(os.path.join(plot_directory, f'testgenerated-sample-{epoch}.png'))
+                plt.clf()
+
+                plt.imshow(dataset.unscale_data(hr.cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.title(f'Test, Generated HR Sample, Epoch = {epoch}')
+                plt.colorbar()
+                plt.savefig(os.path.join(plot_directory, f'testhr-sample-{epoch}.png'))
+                plt.clf()
+                plt.close('all')
+
+
+                plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),img[0][temp_idx][int(10*factor),:].cpu().numpy(),label = 'Low-Resolution Input')
+                plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),target[0][temp_idx][int(10*factor),:].cpu().numpy(), label = 'High-Resolution Input')
+                plt.plot(data_loader.dataset.img_shape*(20/factor)*(np.arange(target.shape[2])/target.shape[2]),output[0][temp_idx][int(10*factor),:].cpu().detach().numpy(), label = 'Output')
+                plt.title(r'Cross section: x = 200 $\mu m$, L1:{}'.format(loss.item()), fontsize = 10)
+    #             legend()
+                plt.legend()
+                plt.ylabel(r'T [K]')
+                plt.xlabel(r'z [$\mu m$]')
+                plt.savefig(os.path.join(plot_directory, 'line_plot{}.png'.format(epoch)), bbox_inches='tight')
+                # print('saved')
+                # print(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num))
+                plt.clf()
         torch.cuda.empty_cache()
         end_time = time.time()
         if not loss:
@@ -359,7 +419,7 @@ def train_predictions(model, train_loader, img_dir, epoch):
         P = []
 
         for batch_idx, (img, target) in enumerate(train_loader):  
-
+    
             # if batch_idx > 3:
             #     break 
 

@@ -1,3 +1,5 @@
+from tqdm import tqdm
+import time
 
 
 import math
@@ -58,6 +60,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
     # mean = train_dataset.mean_hr
     # std_lrs = train_dataset.std_lr
     # mean_lrs = train_dataset.mean_lr
+
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -68,9 +71,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
     data_loader = dataloader
     learning_rate = 1e-4
     optimizer = torch.optim.Adam(lr_enc.parameters(), lr=learning_rate,weight_decay = 0)
-    import time
+    temp_idx = train_dataset.field_names.index('temperature')
 
-    from tqdm import tqdm
     losses = []
     test_losses = []
     for epoch in range(250):
@@ -130,7 +132,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
 
 
                 plt.clf()
-                plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')[1]).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                # breakpoint()
+                plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')[temp_idx]).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'High Resolution GT, Epoch = {epoch}')
                 plt.colorbar()
@@ -138,14 +141,14 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
                 plt.clf()
 
 
-                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Low Resolution Downscaled GT, Epoch = {epoch}')
                 plt.colorbar()
 
                 plt.savefig(os.path.join(results_dir, f'lr-downsampled-{epoch}.png'))
                 plt.clf()
 
-                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Generated HR Sample, Epoch = {epoch}')
                 plt.colorbar()
                 plt.savefig(os.path.join(results_dir, f'generated-sample-{epoch}.png'))
@@ -191,9 +194,13 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
             output = lr_enc((img.float()))
 
             new_out = output
+            
             loss = criterion(output.float(), (target.float()))
 
             testrunning_loss += loss.item()/len(dev_dataloader)
+            # print(testrunning_loss)
+            # if loss.item() > 0.5:
+            #     breakpoint()
             all_losses.append(testrunning_loss)
             if batch_num % 400 == 0:
                 # print(target.shape)
@@ -220,23 +227,22 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
                 # plt.savefig(results_dir + '/testnonormalimage{}_{}.png'.format(epoch, batch_num))
                 # plt.show()
                 # plt.close('all')
+                plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr'))[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.title(f'Test, High Resolution GT, Epoch = {epoch}')
+                plt.colorbar()
+                plt.savefig(os.path.join(results_dir, f'testhr-sample-{epoch}.png'))
+                plt.clf()
 
-                # plt.imshow((train_dataset.unscale_data(hr[0].cpu(), input_type = 'hr')).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
-                # # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
-                # plt.title(f'Test, High Resolution GT, Epoch = {epoch}')
-                # plt.colorbar()
-                # plt.savefig(os.path.join(results_dir, f'testhr-sample-{epoch}.png'))
-                # plt.clf()
 
-
-                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(lr[0].cpu().numpy(), input_type = 'lr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Test, Low Resolution Downscaled GT, Epoch = {epoch}')
                 plt.colorbar()
 
                 plt.savefig(os.path.join(results_dir, f'testlr-downsampled-{epoch}.png'))
                 plt.clf()
 
-                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[1].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+                plt.imshow(train_dataset.unscale_data(new_out.cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
                 plt.title(f'Test, Generated HR Sample, Epoch = {epoch}')
                 plt.colorbar()
                 plt.savefig(os.path.join(results_dir, f'testgenerated-sample-{epoch}.png'))
