@@ -30,7 +30,6 @@ from torch.utils.data import DataLoader
 import numpy as np
 import torchsummary
 import matplotlib.pyplot as plt
-from datasets.dataset import TemperatureXZDataset
 # from lr_encoder_model import rrdbnet_x4
 device = torch.device("cuda")
 

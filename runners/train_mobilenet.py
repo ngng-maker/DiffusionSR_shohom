@@ -23,7 +23,6 @@ from torch.utils.data import DataLoader
 import numpy as np
 import torchsummary
 import matplotlib.pyplot as plt
-from datasets.dataset import TemperatureXZDataset
 
 
 

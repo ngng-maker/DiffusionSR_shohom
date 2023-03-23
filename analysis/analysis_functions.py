@@ -9,7 +9,7 @@ from models.lr_encoder_model import rrdbnet_encoder
 from models.mobilenet_model import MobileNetv2_SISR
 from pylab import gca
 from tqdm import tqdm
-from datasets.dataset import SimulationXZDataset, TemperatureXZDataset
+from datasets.dataset import SimulationXZDataset#, TemperatureXZDataset
 from runners.train_diffusion import forwardpass, num_to_groups
 from skimage.metrics import structural_similarity as ssim_id
 
@@ -265,7 +265,7 @@ def compute_alpha(beta, t):
     a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
     return a
 
-def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq, timesteps = 200, skip = 1, schedule = 'linear', **kwargs):
+def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq, timesteps = 200, skip = 1, schedule = 'linear',transform_rescale = False,  **kwargs):
     
     # skip =timesteps // self.args.timesteps
     seq = range(0, timesteps, skip)
@@ -314,9 +314,9 @@ def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq
         target = hr.to(device)
     if len(lr.shape)< 4:
 
-        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
+        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor, transform_rescale=transform_rescale, dataset = dataset)
     else:
-        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
+        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor, transform_rescale=transform_rescale, dataset = dataset)
     batches = num_to_groups(1, lr.shape[0])
     shape=hr.shape
     # print(timesteps, batches, img.shape[0])
@@ -348,7 +348,7 @@ def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq
     
     return dataset.unscale_data(lr, input_type='lr'), result, dataset.unscale_data(target.cpu(), input_type = 'hr')
 
-def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timesteps = 200, schedule = 'linear'):
+def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timesteps = 200, schedule = 'linear', transform_rescale = False):
     # take in all 4
     # return rescaled input, result, target
     if len(lr.shape) < 4:
@@ -359,9 +359,9 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
         target = hr.to(device)
     if len(lr.shape)< 4:
 
-        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
+        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor, transform_rescale =transform_rescale, dataset = dataset)
     else:
-        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
+        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor, transform_rescale =transform_rescale, dataset =dataset)
     batches = num_to_groups(1, lr.shape[0])
     print(timesteps, batches, img.shape[0])
     print(x_e.shape)
@@ -680,13 +680,14 @@ def load_mobilenet(mobilenet_results_dir):
     mobilenet.eval()
     return mobilenet
 
-def load_diffusion(diffusion_results_dir, dataset, conditioning = 'implicit'):
+def load_diffusion(diffusion_results_dir, dataset, conditioning = 'implicit', encoder_flag= True):
     model = Unet(
             dim=dataset.img_shape,
             channels=dataset.n_steps*dataset.num_fields,
             dim_mults=(1, 2, 4,),
             conditioning=conditioning,
-            out_dim=dataset.n_steps*dataset.num_fields
+            out_dim=dataset.n_steps*dataset.num_fields,
+            encoder_flag=encoder_flag
         )
 
     model.to(device)
@@ -706,7 +707,7 @@ def load_diffusion(diffusion_results_dir, dataset, conditioning = 'implicit'):
     return model
 def load_encoder(encoder_results_dir, dataset):
     device = 'cuda'
-    lr_enc  = rrdbnet_encoder(upscale_factor = dataset.factor, in_channels = dataset.n_steps*dataset.num_fields, out_channels = dataset.n_steps*dataset.num_fields)
+    lr_enc  = rrdbnet_encoder(upscale_factor = dataset.factor, in_channels = dataset.n_steps*dataset.num_fields, out_channels = dataset.out_steps*dataset.num_fields)
     # lr_enc = rrdbnet_x4(upscale_factor = 4, num_blocks = 8)
 
     lr_enc.to(device)

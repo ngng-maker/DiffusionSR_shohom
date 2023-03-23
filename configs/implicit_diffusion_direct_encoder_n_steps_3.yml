@@ -1,0 +1,22 @@
+
+root_folder: "/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data"
+downscale_method: "direct" 
+n_steps: "3" 
+
+residual_flag: false
+conditioning: "implicit"
+encoding: True
+
+
+normalize_method: "standardize"
+schedule: "linear"
+fields: 'temperature'
+loss_type: 'huber'
+timesteps: 1000
+batch_size: 16
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: True
+encoder_results_dir: '/home/oogoke/DiffusionSR/runs/direct/encoder/2023_02_21_18_57_30/standardize/n_steps_3'
+  
+

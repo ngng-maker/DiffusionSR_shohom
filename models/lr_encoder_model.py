@@ -1,5 +1,4 @@
 from typing import Any
-from datasets.dataset import TemperatureXZDataset
 import numpy as np
 import math
 from tqdm import tqdm

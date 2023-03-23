@@ -76,20 +76,38 @@ def frame_tick(frame_width=2, tick_width=1.5):
     plt.tick_params(direction='in',
                     width=tick_width)
 
-def forwardpass(lr_enc, sample, factor = 4):
+def forwardpass(lr_enc, sample, factor = 4, output = False, transform_rescale = False, dataset = None):
     '''
     Pass the array "sample" through the RRDB encoder
     '''
-    x = lr_enc.conv1(sample)
-    x = lr_enc.trunk(x)
-    x = lr_enc.conv2(x)
-    x = F.interpolate(x, scale_factor=2, mode='nearest')
-    x = lr_enc.upsampling1(x)
-    if factor == 4:
+   
+    if transform_rescale and dataset is None:
+        raise AssertionError("Dataset must be specified in order to use transform_rescale option")
+
+    if output:
+        if transform_rescale:
+            
+            unscaled_sample= dataset.unscale_data(sample, input_type = 'lr', maintain_torch = True)
+            rescaling_sample = dataset.rescale_data(unscaled_sample, input_type = 'lr', normalize = 'rescaling', maintain_torch = True)
+            sample = rescaling_sample
+        x = lr_enc(sample)
+        if transform_rescale:
+            x = dataset.unscale_data(x, input_type = 'hr', normalize = 'rescaling', maintain_torch = True)
+            # breakpoint()
+            x = dataset.rescale_data(x, input_type = 'hr', normalize = 'standardize', maintain_torch = True)
+    else:
+        if transform_rescale:
+            raise NotImplementedError()
+        x = lr_enc.conv1(sample)
+        x = lr_enc.trunk(x)
+        x = lr_enc.conv2(x)
         x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = lr_enc.upsampling2(x)
-    x = lr_enc.conv3(x)
-    return x
+        x = lr_enc.upsampling1(x)
+        if factor == 4:
+            x = F.interpolate(x, scale_factor=2, mode='nearest')
+            x = lr_enc.upsampling2(x)
+        x = lr_enc.conv3(x)
+    return x.float()
 
 
 def legend(location='upper left', fontsize=8):
@@ -132,6 +150,9 @@ class DiffusionModel():
                  encoding = True,
                  schedule='linear',             
                  device = 'cuda', 
+                 enc_output = True,
+                 out_steps = None,
+                 transform_rescale = False
                  ):
 
         self.results_folder = results_folder
@@ -140,24 +161,33 @@ class DiffusionModel():
         self.dev_dataset = dev_dataset
         self.test_dataset = test_dataset
         self.timesteps = timesteps
+        self.transform_rescale = transform_rescale
         self.encoding = encoding
         self.conditioning = conditioning
         self.schedule = schedule
-        
+        self.enc_output = enc_output
         self.image_size = self.train_dataset.img_shape
         self.device = device
         torch.manual_seed(0)
         self.results_folder = Path(self.results_folder)
         self.results_folder.mkdir(exist_ok=True)
-        self.channels = self.train_dataset.n_steps*self.train_dataset.num_fields
-
+        if out_steps is None:
+            self.channels = self.train_dataset.n_steps*self.train_dataset.num_fields
+        else:
+            self.channels = out_steps
         if self.encoding:
+            print(f"Loading encoder ... encoding = {encoding}")
             self.lr_enc = self.initialize_encoder()
-
-        # breakpoint()
+        else:
+            print(f'not loading encoder, ..., encoding = {encoding} ')
+        if self.enc_output:
+            init_dim= self.channels
+        else:
+            init_dim = None
         self.model = Unet(
             dim=self.image_size,
             channels=self.channels,
+            init_dim = init_dim, 
             encoder_flag=self.encoding,
             dim_mults=(1, 2, 4,),
             conditioning=conditioning,
@@ -368,7 +398,7 @@ class DiffusionModel():
         
         timesteps = self.timesteps
         if sampler == 'DDPM':
-            batch_size = batch.shape[0]
+            batch_size = 2
             batches = num_to_groups(1, batch_size)
             all_images_list = list(map(lambda n: self.sample(self.model, timesteps=timesteps, x_e=x_e,
                                 image_size=dataset.img_shape,  batch_size=batch_size, channels=self.channels), batches))[0]
@@ -413,8 +443,9 @@ class DiffusionModel():
         elif split == 'validation':
             dataset = self.dev_dataset
 
-        all_images = self.batch_sample(dataset, batch, x_e)
+        all_images = self.batch_sample(dataset, batch[:2], x_e[:2])
         self.save(split, all_images, epoch = epoch, step = step , res =res, hr = hr, true_lr = true_lr, upscaled_lr = upscaled_lr)
+        print(hr.min(), hr.max(), true_lr.min(), true_lr.max(), x_e.min(), x_e.max(), all_images[-1].min(), all_images[-1].max())
   
     def train(self,
               epochs,
@@ -467,7 +498,7 @@ class DiffusionModel():
                 if len(batch.shape) < 4:
                     batch = torch.reshape(
                         batch, (num_batch, 1, len_batch, width_batch))
-                batch = batch.to(self.device)
+                batch = batch.to(self.device).float()
                 # Create lr input for conditioning
                 if len(true_lr.shape) < 4:
                     true_lr = true_lr.view(
@@ -475,7 +506,7 @@ class DiffusionModel():
                 
                 self.optimizer.zero_grad()
                 if self.encoding:
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(), factor = self.train_dataset.factor)
+                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(), factor = self.train_dataset.factor, output = self.enc_output,transform_rescale=self.transform_rescale, dataset = self.train_loader.dataset)
                 else:
                     x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
                 
@@ -514,7 +545,8 @@ class DiffusionModel():
                     true_lr = true_lr.view(
                         true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(self.device).float()
                 if self.encoding:
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(),  factor = self.train_dataset.factor)
+                    
+                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(),  factor = self.train_dataset.factor, output = self.enc_output,transform_rescale=self.transform_rescale, dataset = self.train_loader.dataset)
                 else:
                     x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
                 

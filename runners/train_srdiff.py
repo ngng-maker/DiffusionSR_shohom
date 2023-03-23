@@ -45,6 +45,11 @@ normalize_method = new_config.normalize_method
 conditioning = new_config.conditioning # possible options: explicit, implicit
 downscale_method = new_config.downscale_method
 use_pretrained= new_config.use_pretrained
+if 'enc_output' in new_config:
+    enc_output = new_config.enc_output
+else:
+    enc_output = False
+
 if args.restart_dir == '':
     restart = False
     restart_dir = ''
@@ -65,31 +70,47 @@ if encoding_flag:
 else:
     encoder = 'upscaled'
 # breakpoint()
+field_names = None
 if new_config.fields == 'temperature':
     field_names = ['temperature']
 elif new_config.fields == 'all':
     field_names = None
+elif new_config.fields == 'all_but_pressure':
+    field_names = ['vx', 'temperature',  'vy', 'vz', 'liqlabel']
+elif new_config.fields == 'temperature_liqlabel':
+    field_names = ['temperature', 'liqlabel']
 print(field_names)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = int(new_config.epochs)
 learning_rate = float(new_config.learning_rate)
-
+if not 'loss_type' in new_config:
+    loss_type = 'huber'
+else:
+    loss_type  = new_config.loss_type
+if 'out_steps' in new_config:
+    out_steps = new_config.out_steps
+else:
+    out_steps = None
+if 'transform_rescale' in new_config:
+    transform_rescale = new_config.transform_rescale
+else:
+    transform_rescale  = False
 # Define dataset
 train_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                      normalize=normalize_method,
                                      split='train',
                                      root_folder=root_folder,
-                                     n_steps=n_steps, field_names = field_names)
+                                     n_steps=n_steps, field_names = field_names, out_steps = out_steps)
 test_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                     normalize=normalize_method,
                                     split='test',
                                     root_folder=root_folder,
-                                    n_steps=n_steps, field_names = field_names)
+                                    n_steps=n_steps, field_names = field_names, out_steps = out_steps)
 dev_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                    normalize=normalize_method,
                                    split='dev',
                                    root_folder=root_folder,
-                                   n_steps=n_steps, field_names = field_names)
+                                   n_steps=n_steps, field_names = field_names, out_steps = out_steps)
 
 # Define dataloader
 dataloader = DataLoader(train_dataset,
@@ -106,7 +127,7 @@ dev_dataloader = DataLoader(dev_dataset,
                             batch_size=batch_size,
                             shuffle=True,
                             drop_last=True)
-
+# breakpoint()
 # Create folder to save results
 now = datetime.datetime.now()
 print ("Current date and time : ")
@@ -173,7 +194,8 @@ if modeltype == 'diffusion':
                                      conditioning=conditioning,
                                      encoding=encoding_flag,
                                      schedule=schedule,
-                                     device='cuda',
+                                     device='cuda', enc_output = enc_output, 
+                                     out_steps = out_steps, transform_rescale=transform_rescale
                                      )
     diffusion_model.train(epochs=epochs,
                           restart=restart,
@@ -181,5 +203,5 @@ if modeltype == 'diffusion':
 
                           batch_size=batch_size,
                           learning_rate=learning_rate,
-                          loss_type='huber'
+                          loss_type=loss_type
                           )
