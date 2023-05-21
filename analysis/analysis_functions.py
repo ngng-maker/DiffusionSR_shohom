@@ -493,7 +493,7 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
 
 
-    all_images_list = list(map(lambda n: sample(model, x_e = x_e, timesteps = timesteps, image_size = 80,  batch_size=img.shape[0], channels=1), batches))[0]
+    all_images_list = list(map(lambda n: sample(model, x_e = x_e, timesteps = timesteps, image_size = x_e.shape[-1],  batch_size=img.shape[0], channels=1), batches))[0]
     all_images = torch.stack(all_images_list, dim=0)
     result = dataset.unscale_data(all_images.numpy()[-1], input_type = 'hr') 
     

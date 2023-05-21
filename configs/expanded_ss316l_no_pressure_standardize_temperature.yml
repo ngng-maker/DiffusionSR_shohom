@@ -14,7 +14,7 @@ timesteps: 1000
 batch_size: 128
 epochs: 300
 learning_rate: 5e-5
-use_pretrained: False
-encoder_results_dir: '/home/oogoke/DiffusionSR/runs/direct/encoder/2023_03_19_21_40_27/rescaling/n_steps_1'
+use_pretrained: True
+encoder_results_dir: '/home/oogoke/DiffusionSR/runs/direct/encoder/2023_03_26_21_53_05/standardize/n_steps_1'
   
 

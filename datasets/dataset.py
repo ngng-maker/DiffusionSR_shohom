@@ -39,7 +39,7 @@ class SimulationXZDataset(Dataset):
                  root_folder='/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data',
                  split='train',
                  normalize='standardize',
-                 return_info=False,
+                 return_info=False, cross_validate  = False,
                  n_steps=1,  field_names = None, out_steps = None):
         # Use default HR paths, always the same
         # Use LR path as specified, may change
@@ -47,9 +47,11 @@ class SimulationXZDataset(Dataset):
         self.downscale_method = downscale_method
         self.root_folder = root_folder
         self.split = split
+
         self.normalize = normalize
         print(f"Using normalize method: ... {self.normalize}")
-        self.hr_path = os.path.join(self.root_folder, split, 'HR') + os.sep
+
+        
         self.threshold_T = 8000
         self.powers = []
         self.velocities = []
@@ -84,19 +86,96 @@ class SimulationXZDataset(Dataset):
             for j in self.field_idxs:
                 self.field_idxs_steps.append(j*(i+1))
         print("Processing dataset with {} fields".format(len(self.field_names)))
-        self.lr_path = os.path.join( self.root_folder, split, 'LR', downscale_method, '1x')+'/'
-        img_names = [f.split(self.lr_path)[-1] for f in glob.glob(os.path.join(self.lr_path, '**/*npy'), recursive=True)]#os.listdir(self.lr_path)
-        targ_names =  [f.split(self.hr_path)[-1] for f in glob.glob(os.path.join(self.hr_path, '**/*npy'), recursive=True)] #os.listdir(self.hr_path)
 
-
-        intersection_list = list(set(img_names) & set(targ_names))
-        self.lr_paths = np.sort(np.array(
-            [self.lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
-        self.hr_paths = np.sort(np.array(
-            [self.hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+        
        
-        test_hr_shape = list(np.load(self.hr_paths[0]).shape)
-        test_lr_shape = list(np.load(self.lr_paths[0]).shape)
+        # breakpoint()
+        if not cross_validate:
+            self.lr_path = os.path.join( self.root_folder, split, 'LR', downscale_method, '1x')+os.sep
+            self.hr_path = os.path.join(self.root_folder, split, 'HR') + os.sep
+            
+            img_names = [f.split(self.lr_path)[-1] for f in glob.glob(os.path.join(self.lr_path, '**/*npy'), recursive=True)]
+            targ_names =  [f.split(self.hr_path)[-1] for f in glob.glob(os.path.join(self.hr_path, '**/*npy'), recursive=True)]
+
+            intersection_list = list(set(img_names) & set(targ_names))
+
+
+            
+
+            self.lr_paths = np.sort(np.array(
+                [self.lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+            self.hr_paths = np.sort(np.array(
+                [self.hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+
+            test_hr_shape = list(np.load(self.hr_paths[0]).shape)
+            test_lr_shape = list(np.load(self.lr_paths[0]).shape)
+            self.factor = int(test_hr_shape[0]/test_lr_shape[0]) 
+            self.upscaled_lr_path = os.path.join(
+                self.root_folder, split, 'LR', downscale_method, '{}x').format(self.factor)+os.sep
+
+            self.upscaled_lr_paths = np.sort(np.array(
+                [self.upscaled_lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+
+
+        if cross_validate:
+            ### combine all splits into one list
+            valid_split = 'train'
+
+            lr_path = os.path.join( self.root_folder, valid_split, 'LR', downscale_method, '1x')+os.sep
+            hr_path = os.path.join(self.root_folder, valid_split, 'HR') + os.sep
+           
+            img_names = [f.split(lr_path)[-1] for f in glob.glob(os.path.join(lr_path, '**/*npy'), recursive=True)]
+            targ_names =  [f.split(hr_path)[-1] for f in glob.glob(os.path.join(hr_path, '**/*npy'), recursive=True)]
+
+            intersection_list = list(set(img_names) & set(targ_names))
+
+
+                
+            self.lr_paths = np.sort(np.array(
+                [lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+            self.hr_paths = np.sort(np.array(
+                [hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+            test_hr_shape = list(np.load(self.hr_paths[0]).shape)
+            test_lr_shape = list(np.load(self.lr_paths[0]).shape)
+            self.factor = int(test_hr_shape[0]/test_lr_shape[0]) 
+            upscaled_lr_path = os.path.join(
+            self.root_folder, valid_split, 'LR', downscale_method, '{}x').format(self.factor)+os.sep
+
+            self.upscaled_lr_paths = np.sort(np.array(
+                [upscaled_lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+
+            valid_split = 'dev'
+
+
+            
+            lr_path = os.path.join( self.root_folder, valid_split, 'LR', downscale_method, '1x')+os.sep
+            hr_path = os.path.join(self.root_folder, valid_split, 'HR') + os.sep
+            upscaled_lr_path = os.path.join(
+            self.root_folder, valid_split, 'LR', downscale_method, '{}x').format(self.factor)+os.sep
+            
+            img_names = [f.split(lr_path)[-1] for f in glob.glob(os.path.join(lr_path, '**/*npy'), recursive=True)]
+            targ_names =  [f.split(hr_path)[-1] for f in glob.glob(os.path.join(hr_path, '**/*npy'), recursive=True)]
+
+            intersection_list = list(set(img_names) & set(targ_names))
+
+
+                
+
+            self.upscaled_lr_paths = np.append(self.upscaled_lr_paths ,  np.sort(np.array(
+                [upscaled_lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object')))
+
+            self.lr_paths = np.append(self.lr_paths, np.sort(np.array(
+                [lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object')))
+            self.hr_paths = np.append(self.hr_paths, np.sort(np.array(
+                [hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object')))
+            indices = np.arange(self.lr_paths)
+            np.random.shuffle(indices)
+            train_idx = indices[:int(0.9*len(indices))]
+            val_idx = indices[int(0.9*len(indices)):]
+            
+
+
+
         if 'ss316l' in self.root_folder:
             self.baseline_hr  = np.dstack([np.ones(test_hr_shape[:-1])*0,
                         np.ones(test_hr_shape[:-1])*293, 
@@ -115,11 +194,7 @@ class SimulationXZDataset(Dataset):
             self.baseline_hr  = np.dstack([np.ones(test_hr_shape)*293])
             self.baseline_lr = np.dstack([np.ones(test_lr_shape)*293])
 
-        self.factor = int(test_hr_shape[0]/test_lr_shape[0]) 
-        self.upscaled_lr_path = os.path.join(
-            self.root_folder, split, 'LR', downscale_method, '{}x').format(self.factor)+'/'    
-        self.upscaled_lr_paths = np.sort(np.array(
-            [self.upscaled_lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
+
         self.img_shape = int(test_hr_shape[0])
         n_channels = len(test_hr_shape)
         # if n_channels < 3:
@@ -138,6 +213,7 @@ class SimulationXZDataset(Dataset):
             
 
         # breakpoint()
+
     def compute_statistics(self):
         test_hr_shape = list(np.load(self.hr_paths[0]).shape)
         test_lr_shape = list(np.load(self.lr_paths[0]).shape)
@@ -482,7 +558,7 @@ def main():
                                       n_steps=1,
                                       root_folder=root_folder,
                                       split=split,
-                                      field_names= ['vx', 'temperature',  'vy', 'vz', 'liqlabel'])
+                                      field_names= ['vx', 'temperature',  'vy', 'vz', 'liqlabel'], cross_validate=True)
         print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
     # dataset.testgetitem(1)
 
