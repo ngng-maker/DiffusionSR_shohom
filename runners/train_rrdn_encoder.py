@@ -56,7 +56,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
     os.makedirs(results_dir, exist_ok = True)
     # image_size = 80
     # channels = 1
-    batch_size = 128
+    batch_size = 64
     # std =  train_dataset.std_hr
     # mean = train_dataset.mean_hr
     # std_lrs = train_dataset.std_lr
@@ -111,7 +111,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
                 # if data_loader.dataset.normalize == 'rescaling':
                 #     scaled_loss = criterion(dataloader.dataset.unscale_data(output, input_type = 'hr', maintain_torch = True),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr'), maintain_torch = True ).item()
                 # elif data_loader.dataset.normalize == 'standardize':
-                scaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') )
+                # scaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') )
 
                     # scaled_loss = criterion(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') ).item()
 
@@ -124,13 +124,13 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
 
                 # elif data_loader.dataset.normalize == 'standardize':
 
-                scaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target, input_type = 'hr') )
+                # scaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target, input_type = 'hr') )
              
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             running_loss += loss.item()/len(data_loader)
-            running_scaled_loss += scaled_loss/len(data_loader)
+            # running_scaled_loss += scaled_loss/len(data_loader)
 
             if batch_num % 400 == 0:
                 if flip:
@@ -244,7 +244,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
                 # if data_loader.dataset.normalize == 'rescaling':
                 #     testscaled_loss = criterion(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') ).item()
                 # elif data_loader.dataset.normalize == 'standardize':
-                testscaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') )
+                # testscaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target[:,-1:], input_type = 'hr') )
 
                 # breakpoint()
             else:
@@ -254,15 +254,15 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset):
 
                 # elif data_loader.dataset.normalize == 'standardize':
 
-                testscaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target, input_type = 'hr') )
+                # testscaled_loss = npl1loss(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target, input_type = 'hr') )
             # breakpoint()
             # print(testrunning_loss)
             # if loss.item() > 0.5:
             #     breakpoint()
             testrunning_loss += loss.item()/len(dev_dataloader)
-            testrunning_scaled_loss += testscaled_loss/len(dev_dataloader)
+            # testrunning_scaled_loss += testscaled_loss/len(dev_dataloader)
             all_losses.append(testrunning_loss)
-            all_scaled_losses.append(testrunning_scaled_loss)
+            # all_scaled_losses.append(testrunning_scaled_loss)
             if batch_num % 400 == 0:
                 # print(target.shape)
                 # plt.clf()

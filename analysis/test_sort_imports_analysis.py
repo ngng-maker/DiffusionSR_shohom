@@ -7,10 +7,6 @@ from tqdm import tqdm
 import torch
 import torchvision
 import torch.nn as nn
-(base) [oogoke@gpu-node-3 analysis]$ code test_sort_imports_analysis.py 
-
-(base) [oogoke@gpu-node-3 analysis]$ 
-(base) [oogoke@gpu-node-3 analysis]$ more test_sort_imports_analysis.py 
 import sys
 import numpy as np
 from pylab import gca

@@ -373,7 +373,7 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
         return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
 
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
 
     @torch.no_grad()
     def p_sample(model, x, x_e,  t, t_index):

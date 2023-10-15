@@ -63,7 +63,9 @@ class SimulationXZDataset(Dataset):
         self.times = []
         self.return_info = return_info
         if 'ss316l' in self.root_folder:
-            all_field_names = {'vx':0, 'temperature':1, 'pressure':2, 'vy':3, 'vz':4, 'liqlabel':5}
+            # all_field_names = {'vx':0, 'temperature':1, 'pressure':2, 'vy':3, 'vz':4, 'liqlabel':5}
+            all_field_names = { 'temperature':0}
+
         else:
             all_field_names = {'temperature':0}
         self.field_threshold = {'vx': 1000, 'temperature': self.threshold_T, 'pressure': 1e7, 'vy':1000, 'vz': 1000, 'liqlabel': 1 }
@@ -106,7 +108,7 @@ class SimulationXZDataset(Dataset):
                 [self.lr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
             self.hr_paths = np.sort(np.array(
                 [self.hr_path+img_name for img_name in intersection_list if img_name.endswith('npy')], dtype='object'))
-
+            # breakpoint()
             test_hr_shape = list(np.load(self.hr_paths[0]).shape)
             test_lr_shape = list(np.load(self.lr_paths[0]).shape)
             self.factor = int(test_hr_shape[0]/test_lr_shape[0]) 
