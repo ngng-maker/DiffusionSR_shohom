@@ -681,6 +681,48 @@ def load_mobilenet(mobilenet_results_dir):
     mobilenet.eval()
     return mobilenet
 
+
+
+def predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, dataset, skip = 50, sampler = 'DDPM'):
+
+    '''
+    Return the predictions for the Diffusion model given an input batch
+    Parameters:
+    diff_model: DiffusionModel object
+    lr_enc: Torch network module object, representing the trained RRDN encoder model
+    res: Torch tensor, Residual between HR and LR data
+    hr: Torch tensor, High Resolution data
+    lr: Torch tensor, Low Resolution data
+    upscaled_lr: Torch tensor, Bicubic upscaled low resolution data
+    sampler: String, Sampling method for the diffusion model (either DDIM or DDPM). Default is DDPM
+    skip: Integer, Number of timesteps to skip in the diffusion model. Default is 50. Ignored if DDPM.
+    dataset: Dataset object, used for rescaling data
+    Returns:
+    Low resolution data, scaled to original space, 4-D numpy array (batch, channels, height, width)
+    Output (Super-resolution), scaled to original space, 4-D numpy array
+    High resolution data, scaled to original space, 4-D numpy array 
+    '''
+
+    if len(lr.shape) < 4:
+        img = (lr.view(lr.shape[0], 1, lr.shape[1], lr.shape[2]).to(device))
+        target = (hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2]).to(device))
+    else:
+        img = lr.to(device)
+        target = hr.to(device)
+    if len(lr.shape) < 4:
+
+        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
+    else:
+        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
+    
+    all_images = diff_model.batch_sample(dataset = dataset, batch = hr.to(device), x_e = x_e.to(device), sampler = sampler, skip=skip)                
+    result = dataset.unscale_data(all_images.cpu().numpy()[-1, 0], input_type = 'residual') + dataset.unscale_data(upscaled_lr.numpy(), input_type = 'upscaled_lr')
+    
+    return dataset.unscale_data(lr, input_type='lr'), result, dataset.unscale_data(target.cpu(), input_type = 'hr')
+
+
+
+
 def load_diffusion(diffusion_results_dir, dataset, conditioning = 'implicit', encoder_flag= True):
     model = Unet(
             dim=dataset.img_shape,

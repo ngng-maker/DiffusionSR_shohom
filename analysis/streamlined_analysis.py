@@ -36,7 +36,7 @@ from analysis_functions import initialize_diffusion
 
 # from datasets.dataset import TemperatureXZDataset
 from runners.train_diffusion import forwardpass
-from analysis_functions import predict_lrenc, predict_mobilenet, predict_ddim_diffusion,predict_modified_diffusion, predict_diffusion, plot_images, get_profile, load_mobilenet, load_encoder, load_diffusion, PSNR, SSIM, multifield_plot_images
+from analysis_functions import predict_lrenc, predict_refactored_diffusion, predict_mobilenet, predict_ddim_diffusion,predict_modified_diffusion, predict_diffusion, plot_images, get_profile, load_mobilenet, load_encoder, load_diffusion, PSNR, SSIM, multifield_plot_images
 from models.diffusion_model import Unet
 from models.lr_encoder_model import rrdbnet_encoder as rrdbnet_x4
 import argparse
@@ -91,40 +91,40 @@ diff_model = initialize_diffusion(diff_dir=diffusion_results_dir,
 
 lr_enc = load_encoder(encoder_results_dir, dataset = train_dataset)
 
-def predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, dataset, skip = 50):
+# def predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, dataset, skip = 50):
 
-    '''
-    Return the predictions for the Diffusion model given an input batch
-    Parameters:
-    diff_model: DiffusionModel object
-    lr_enc: Torch network module object, representing the trained RRDN encoder model
-    res: Torch tensor, Residual between HR and LR data
-    hr: Torch tensor, High Resolution data
-    lr: Torch tensor, Low Resolution data
-    upscaled_lr: Torch tensor, Bicubic upscaled low resolution data
-    dataset: Dataset object, used for rescaling data
-    Returns:
-    Low resolution data, scaled to original space, 4-D numpy array (batch, channels, height, width)
-    Output (Super-resolution), scaled to original space, 4-D numpy array
-    High resolution data, scaled to original space, 4-D numpy array 
-    '''
+#     '''
+#     Return the predictions for the Diffusion model given an input batch
+#     Parameters:
+#     diff_model: DiffusionModel object
+#     lr_enc: Torch network module object, representing the trained RRDN encoder model
+#     res: Torch tensor, Residual between HR and LR data
+#     hr: Torch tensor, High Resolution data
+#     lr: Torch tensor, Low Resolution data
+#     upscaled_lr: Torch tensor, Bicubic upscaled low resolution data
+#     dataset: Dataset object, used for rescaling data
+#     Returns:
+#     Low resolution data, scaled to original space, 4-D numpy array (batch, channels, height, width)
+#     Output (Super-resolution), scaled to original space, 4-D numpy array
+#     High resolution data, scaled to original space, 4-D numpy array 
+#     '''
 
-    if len(lr.shape) < 4:
-        img = (lr.view(lr.shape[0], 1, lr.shape[1], lr.shape[2]).to(device))
-        target = (hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2]).to(device))
-    else:
-        img = lr.to(device)
-        target = hr.to(device)
-    if len(lr.shape) < 4:
+#     if len(lr.shape) < 4:
+#         img = (lr.view(lr.shape[0], 1, lr.shape[1], lr.shape[2]).to(device))
+#         target = (hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2]).to(device))
+#     else:
+#         img = lr.to(device)
+#         target = hr.to(device)
+#     if len(lr.shape) < 4:
 
-        x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
-    else:
-        x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
-        # x_e = forwardpass(lr_enc, lr.to(device).float())
-        all_images = diff_model.batch_sample(dataset = dataset, batch = hr.to(device), x_e = x_e.to(device), sampler = 'DDPM', skip= skip)                
-        result = dataset.unscale_data(all_images.cpu().numpy()[-1, 0], input_type = 'residual') + dataset.unscale_data(upscaled_lr.numpy(), input_type = 'upscaled_lr')
+#         x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
+#     else:
+#         x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
+#         # x_e = forwardpass(lr_enc, lr.to(device).float())
+#         all_images = diff_model.batch_sample(dataset = dataset, batch = hr.to(device), x_e = x_e.to(device), sampler = 'DDPM', skip= skip)                
+#         result = dataset.unscale_data(all_images.cpu().numpy()[-1, 0], input_type = 'residual') + dataset.unscale_data(upscaled_lr.numpy(), input_type = 'upscaled_lr')
         
-    return dataset.unscale_data(lr, input_type='lr'), result, dataset.unscale_data(target.cpu(), input_type = 'hr')
+#     return dataset.unscale_data(lr, input_type='lr'), result, dataset.unscale_data(target.cpu(), input_type = 'hr')
 
 
 # for array in [input, upscaled_lr_data, result_diffusion, target]:
@@ -187,4 +187,5 @@ for k in range(10):
 
     clb.set_ticks([293, 1000, 2000, 3000, 4000, 5000])
     clb.ax.set_title(r'T$[K]$', fontsize=15)
-    plt.show()
+    plt.savefig('test.png')
+    plt.clf()
