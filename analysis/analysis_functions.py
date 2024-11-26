@@ -853,3 +853,4 @@ def initialize_diffusion(diff_dir, enc_dir, datasets, timesteps, conditioning, e
                                     )
     diffusion_model.load_saved_model()
     return diffusion_model
+

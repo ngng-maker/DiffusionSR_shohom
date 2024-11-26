@@ -11,7 +11,6 @@ import glob
 import time
 from matplotlib import pyplot as plt
 
-
 def filter_data(array, thresholds, field_idxs, field_names):
     if len(array.shape) > 2:
         for i, field in zip(field_idxs, field_names):
@@ -551,10 +550,7 @@ class SimulationXZDataset(Dataset):
 
 
 def main():
-
-    import matplotlib.pyplot as plt
-
-    root_folder = '/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction'
+    root_folder = '../datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction'
     example_dir = os.path.join(root_folder, 'example')
     os.makedirs(example_dir, exist_ok = True)
     for split in ['train', 'test', 'dev']:
@@ -576,13 +572,7 @@ def main():
         plt.colorbar()
         plt.savefig(os.path.join(example_dir, 'hr_initial{}.png'.format(i)))
         plt.clf()
-    breakpoint()
-    exit()
-
-
-
-
-    import matplotlib.pyplot as plt
+    exit() # 
     root_folder = '/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data'#'/home/oogoke/DiffusionSR/datasets/ss316l_v2_all_laser_velocity_xz_cross_section_data'
     example_dir =os.path.join(root_folder, 'example')
     os.makedirs(example_dir, exist_ok = True)
