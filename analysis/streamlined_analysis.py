@@ -43,7 +43,7 @@ import argparse
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--wandb_id', type=str, help='Wandb ID', default = 'p4c77tn2')
+parser.add_argument('--wandb_id', type=str, help='Wandb ID', default = '3921imsz')
 args = parser.parse_args()
 
 wandb_id = args.wandb_id
