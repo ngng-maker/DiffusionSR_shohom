@@ -36,13 +36,14 @@ def npl1loss(arr1, arr2):
 
 # os.environ['CUDA_VISIBLE_DEVICES']  = "2"
 def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, config= None):
+    assert wandb.run is None
 
 
     wandb.init(
         project="RRDN_Encoder",
         entity = "fogoke", 
         config=config,
-        mode = 'disabled'# if config['data']['debug'] else 'online'
+        # mode = 'disabled' if config['data']['debug'] else 'online'
     )
 
     print("Now training encoder...")
@@ -78,6 +79,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
 
     device = 'cuda'
     criterion = torch.nn.L1Loss()
+    criterion_cross_entropy = torch.nn.CrossEntropyLoss()
     data_loader = dataloader
     learning_rate = 1e-4
     optimizer = torch.optim.Adam(lr_enc.parameters(), lr=learning_rate,weight_decay = 0)
@@ -130,10 +132,11 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                 # breakpoint()
             else:
                 print("Using multiple fields")
-                loss = criterion(output.float(), (target.float()))
-                loss_temp = criterion(output[:,0:1], target[:,0:1]).item()
-                loss_label = criterion(output[:,1:], target[:,1:]).item()
-
+                # loss = criterion(output.float(), (target.float()))
+                loss_temp = criterion(output[:,0:1], target[:,0:1])
+                loss_label = criterion_cross_entropy(data_loader.dataset.unscale_data(output, input_type = 'hr', maintain_torch = True)[:,1:], data_loader.dataset.unscale_data(target, input_type = 'hr', maintain_torch = True)[:,1:])
+                # loss_label = criterion(output[:,1:], target[:,1:]).item()
+                loss = loss_temp + loss_label
                 # breakpoint()
                 # if data_loader.dataset.normalize == 'rescaling':
                 #     scaled_loss = criterion(dataloader.dataset.unscale_data(output, input_type = 'hr', maintain_torch = True),dataloader.dataset.unscale_data(target, input_type = 'hr'), maintain_torch = True ).item()
@@ -146,8 +149,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             loss.backward()
             optimizer.step()
             running_loss += loss.item()/len(data_loader)
-            running_temp_loss += loss_temp/len(data_loader)
-            running_label_loss += loss_label/len(data_loader)
+            running_temp_loss += loss_temp.item()/len(data_loader)
+            running_label_loss += loss_label.item()/len(data_loader)
             # running_scaled_loss += scaled_loss/len(data_loader)
 
             if batch_num % 400 == 0:
@@ -299,7 +302,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
         del img
         del target
         del loss
-
+        del loss_temp
+        del loss_label
         
         print("Train Time: {:.2f} s".format(end_time-start_time))
 
@@ -341,9 +345,15 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
 
                 # breakpoint()
             else:
-                loss = criterion(output.float(), (target.float()))
-                loss_temp = criterion(output[:,0:1], target[:,0:1]).item()
-                loss_label = criterion(output[:,1:], target[:,1:]).item()
+                # loss = criterion(output.float(), (target.float()))
+                loss_temp = criterion(output[:,0:1], target[:,0:1])#.item()
+                # loss_label = criterion(output[:,1:], target[:,1:]).item()
+                class_indices_target =  data_loader.dataset.unscale_data(target, input_type = 'hr', maintain_torch = True)[:,1:].long()
+                predictions= data_loader.dataset.unscale_data(output, input_type = 'hr', maintain_torch = True)[:,1:]
+                stacked_predictions = torch.stack([predictions, 1 - predictions ], dim = 1)
+                loss_label = criterion_cross_entropy(data_loader.dataset.unscale_data(output, input_type = 'hr', maintain_torch = True)[:,1:], data_loader.dataset.unscale_data(target, input_type = 'hr', maintain_torch = True)[:,1:])
+                breakpoint()
+                loss = loss_temp + loss_label
                 # if data_loader.dataset.normalize == 'rescaling':
                 #     testscaled_loss = criterion(dataloader.dataset.unscale_data(output, input_type = 'hr'),dataloader.dataset.unscale_data(target, input_type = 'hr') ).item()
 
@@ -355,8 +365,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             # if loss.item() > 0.5:
             #     breakpoint()
             testrunning_loss += loss.item()/len(dev_dataloader)
-            testrunning_temp_loss += loss_temp/len(dev_dataloader)
-            testrunning_label_loss += loss_label/len(dev_dataloader)
+            testrunning_temp_loss += loss_temp.item()/len(dev_dataloader)
+            testrunning_label_loss += loss_label.item()/len(dev_dataloader)
             # testrunning_scaled_loss += testscaled_loss/len(dev_dataloader)
             all_losses.append(testrunning_loss)
             # all_scaled_losses.append(testrunning_scaled_loss)

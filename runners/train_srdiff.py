@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from runners.train_diffusion import DiffusionModel
 from runners.train_mobilenet import train_mobilenet
 from runners.train_rrdn_encoder import pretrain_encoder
-
+import wandb
 
 def dict2namespace(config):
     namespace = argparse.Namespace()
@@ -38,6 +38,9 @@ def parse_args_and_config():
 # Define parameters
 
 args,  new_config = parse_args_and_config()
+combined_dict = vars(args)
+combined_dict.update(vars(new_config))
+
 os.environ['CUDA_VISIBLE_DEVICES']  = args.gpu#"5"
 residual_flag = new_config.residual_flag
 modeltype = args.modeltype # possible options: diffusion, mobilenet, encoder
@@ -167,7 +170,8 @@ if modeltype == 'diffusion':
             pretrain_encoder(encoder_results_dir,
                             train_dataset=train_dataset,
                             dev_dataset=dev_dataset,
-                            test_dataset=test_dataset)
+                            test_dataset=test_dataset, 
+                            config = combined_dict)
     else:
         encoder_results_dir = 'no_encoder_used'
     if restart: # Resume training
@@ -185,6 +189,13 @@ if modeltype == 'diffusion':
             f.write(f'schedule: {schedule}, timesteps: {timesteps}, fields: temp' + '\n '+ f'pretrained_encoder: {encoder_results_dir}' + f'\n  diffusion timesteps {timesteps}')
     print("Training Diffusion...")
 
+    wandb.init(
+        project="Flow3D_SuperResolution",
+        entity = "fogoke", 
+        config=combined_dict,
+        # mode = 'disabled' if config['data']['debug'] else 'online'
+    )
+
     diffusion_model = DiffusionModel(results_folder=diffusion_results_dir,
                                      lr_encoder_folder=encoder_results_dir,
                                      train_dataset=train_dataset,
@@ -194,7 +205,8 @@ if modeltype == 'diffusion':
                                      conditioning=conditioning,
                                      encoding=encoding_flag,
                                      schedule=schedule,
-                                     device='cuda', enc_output = enc_output, 
+                                     device=f'cuda:0',#{args.gpu.split(",")[0]}',
+                                     enc_output = enc_output, 
                                      out_steps = out_steps, transform_rescale=transform_rescale
                                      )
     diffusion_model.train(epochs=epochs,

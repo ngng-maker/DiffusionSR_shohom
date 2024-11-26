@@ -12,6 +12,7 @@ from tqdm import tqdm
 from datasets.dataset import SimulationXZDataset#, TemperatureXZDataset
 from runners.train_diffusion import forwardpass, num_to_groups
 from skimage.metrics import structural_similarity as ssim_id
+from runners.train_diffusion import DiffusionModel
 
 device = 'cuda'
 
@@ -782,3 +783,31 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+def initialize_diffusion(diff_dir, enc_dir, datasets, timesteps, conditioning, encoding, schedule, device):
+    ''' 
+    Parameters:
+        diff_dir: (str) Diffusion results directory
+        enc_dir: (str) Encoder results directory
+        datasets: (tuple or list) The three dataset objects corresponding to the train/validation/test splits, in the order (train, validation, test).
+        timesteps: (int) The number of timesteps used for the diffusion model during training
+        conditioning: (boolean) If true, the diffusion model assumes the LR passes through an encoder before being used for conditioning
+        schedule: (str) Variance schedule used for training the diffusion model
+        device: (str) 'cuda' for GPU, 'cpu' for CPU.
+    Returns:
+        diffusion_model: Custom DiffusionModel object that enables sampling with either DDIM or DDPM samplers.
+    '''
+
+    diffusion_model = DiffusionModel(results_folder=diff_dir,
+                                    lr_encoder_folder=enc_dir,
+                                    train_dataset=datasets[0],
+                                    dev_dataset=datasets[1],
+                                    test_dataset=datasets[2],
+                                    timesteps=timesteps,
+                                    conditioning=conditioning,
+                                    encoding=encoding,
+                                    schedule=schedule,
+                                    device=device,enc_output = False
+                                    )
+    diffusion_model.load_saved_model()
+    return diffusion_model

@@ -64,7 +64,8 @@ class SimulationXZDataset(Dataset):
         self.return_info = return_info
         if 'ss316l' in self.root_folder:
             # all_field_names = {'vx':0, 'temperature':1, 'pressure':2, 'vy':3, 'vz':4, 'liqlabel':5}
-            all_field_names = { 'temperature':0}
+            # all_field_names = { 'temperature':0}
+            all_field_names = { 'temperature':0, 'liqlabel':1}
 
         else:
             all_field_names = {'temperature':0}
@@ -99,7 +100,7 @@ class SimulationXZDataset(Dataset):
             img_names = [f.split(self.lr_path)[-1] for f in glob.glob(os.path.join(self.lr_path, '**/*npy'), recursive=True)]
             targ_names =  [f.split(self.hr_path)[-1] for f in glob.glob(os.path.join(self.hr_path, '**/*npy'), recursive=True)]
 
-            intersection_list = list(set(img_names) & set(targ_names))
+            intersection_list = list(set(img_names) & set(targ_names))#[:300]
 
 
             
@@ -112,6 +113,7 @@ class SimulationXZDataset(Dataset):
             test_hr_shape = list(np.load(self.hr_paths[0]).shape)
             test_lr_shape = list(np.load(self.lr_paths[0]).shape)
             self.factor = int(test_hr_shape[0]/test_lr_shape[0]) 
+            print("Downscale factor: ", self.factor)
             self.upscaled_lr_path = os.path.join(
                 self.root_folder, split, 'LR', downscale_method, '{}x').format(self.factor)+os.sep
 
@@ -549,6 +551,37 @@ class SimulationXZDataset(Dataset):
 
 
 def main():
+
+    import matplotlib.pyplot as plt
+
+    root_folder = '/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction'
+    example_dir = os.path.join(root_folder, 'example')
+    os.makedirs(example_dir, exist_ok = True)
+    for split in ['train', 'test', 'dev']:
+        dataset = SimulationXZDataset(downscale_method='direct',
+                                      normalize='standardize',
+                                        n_steps=1,
+                                        root_folder=root_folder,
+                                        split=split,
+                                        field_names=['temperature', 'liqlabel'])
+        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
+    sample = dataset.testgetitem(1)
+    dataloader = DataLoader(dataset, batch_size=1,
+                            shuffle=True, drop_last=True)
+ 
+    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
+
+    for i in range(hr.shape[1]):
+        plt.imshow(hr[0,i].T, origin = 'lower',cmap = 'jet')
+        plt.colorbar()
+        plt.savefig(os.path.join(example_dir, 'hr_initial{}.png'.format(i)))
+        plt.clf()
+    breakpoint()
+    exit()
+
+
+
+
     import matplotlib.pyplot as plt
     root_folder = '/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data'#'/home/oogoke/DiffusionSR/datasets/ss316l_v2_all_laser_velocity_xz_cross_section_data'
     example_dir =os.path.join(root_folder, 'example')

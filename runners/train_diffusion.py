@@ -13,8 +13,21 @@ from pylab import gca
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from torch.optim.lr_scheduler import StepLR
+import wandb
+from torch import nn
 
-
+def remove_module_prefix(state_dict):
+    """
+    Remove the 'module.' prefix from all keys in a state dictionary.
+    """
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith("module."):
+            new_key = k.split("module.")[-1]
+            new_state_dict[new_key] = v  # Remove the 'module.' prefix
+        else:
+            new_state_dict[k] = v
+    return new_state_dict
 def sigmoid_beta_schedule(timesteps):
     beta_start = 0.0001
     beta_end = 0.02
@@ -194,7 +207,9 @@ class DiffusionModel():
             out_dim=self.train_dataset.n_steps*self.train_dataset.num_fields
         )
         self.initialize_variance_schedule()
+        # self.model = nn.DataParallel(self.model)
         self.model.to(self.device)
+
        
         self.save_prefix = ''
     def load_saved_model(self):
@@ -359,6 +374,8 @@ class DiffusionModel():
         frame_tick()
         plt.savefig(os.path.join(self.results_folder,self.save_prefix +
                     f'{split}-individual-sample-{epoch}.png'))
+        wandb.log({f'{split}-individual-sample': wandb.Image(os.path.join(self.results_folder,self.save_prefix +
+                    f'{split}-individual-sample-{epoch}.png'))}, step = epoch)
         plt.clf()
                 
 
@@ -372,6 +389,9 @@ class DiffusionModel():
         plt.colorbar()
         plt.savefig(os.path.join(self.results_folder,
                    self.save_prefix + f'{split}-hr-sample-{epoch}.png'))
+        wandb.log({f'{split}-hr-sample': wandb.Image(os.path.join(self.results_folder,
+                   self.save_prefix + f'{split}-hr-sample-{epoch}.png'))}, step = epoch)
+        
         plt.clf()
         plt.imshow(dataset.unscale_data(upscaled_lr[0].numpy(
         ), input_type='upscaled_lr')[temp_idx].T, origin='lower', cmap='jet', vmin=293, vmax=5000)
@@ -381,6 +401,8 @@ class DiffusionModel():
 
         plt.savefig(os.path.join(self.results_folder,
                    self.save_prefix + f'{split}-lr-sample-{epoch}.png'))
+        wandb.log({f'{split}-lr-sample': wandb.Image(os.path.join(self.results_folder,
+                     self.save_prefix + f'{split}-lr-sample-{epoch}.png'))}, step = epoch)
         plt.clf()
 
         plt.imshow(dataset.unscale_data(true_lr[0].numpy(
@@ -390,10 +412,123 @@ class DiffusionModel():
 
         plt.savefig(os.path.join(self.results_folder,
                    self.save_prefix + f'{split}-lr-downsampled-{epoch}.png'))
+        wandb.log({f'{split}-lr-downsampled': wandb.Image(os.path.join(self.results_folder,
+                     self.save_prefix + f'{split}-lr-downsampled-{epoch}.png'))}, step = epoch)
         plt.clf()
 
         frame_tick()
+        sample = dataset.unscale_data(all_images.numpy()[-1, 0], input_type='hr')
+        if hr.shape[1] > 1:
+            plt.clf()
+            plt.figure(dpi = 300)
+            frame_tick()
+            plt.imshow(sample[1].T, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1)
+            plt.title(f'Generated Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'generated-fluid-fraction-{epoch}.png'))
+            wandb.log({"generated_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'generated-fluid-fraction-{epoch}.png'))}, step = epoch)
 
+            plt.clf()
+            plt.figure(dpi = 300)
+            frame_tick()
+            plt.imshow(sample[1].T > 0.5, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1)
+            plt.title(f'Generated Binarized Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'generated-binarized-fluid-fraction-{epoch}.png'))
+            plt.clf()
+            wandb.log({"generated_binarized_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'generated-binarized-fluid-fraction-{epoch}.png'))}, step = epoch)
+            plt.clf()
+            plt.figure(dpi = 300)
+            frame_tick()
+            plt.imshow((dataset.unscale_data(hr[0].cpu(), input_type = 'hr')[1]).T, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1)
+            # breakpoint()
+            # plt.imshow((hr[0].detach().cpu().numpy()*std + mean).T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+            plt.title(f'High Resolution GT Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'hr-sample-fluid-fraction-{epoch}.png'))
+            wandb.log({"high_res_gt_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'hr-sample-fluid-fraction-{epoch}.png'))}, step = epoch)
+            plt.clf()
+            plt.figure(dpi = 300)
+            frame_tick()
+            plt.imshow(dataset.unscale_data(true_lr[0].cpu().numpy(), input_type = 'lr')[1].T, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1)
+            plt.title(f'Low Resolution Downscaled GT Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'lr-downsampled-fluid-fraction-{epoch}.png'))
+            wandb.log({"low_res_gt_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'lr-downsampled-fluid-fraction-{epoch}.png'))}, step = epoch)
+            plt.clf()
+            plt.close('all')
+            plt.figure(dpi= 300)
+            frame_tick()
+            plt.imshow(sample[1].T, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1, alpha = 0.5)
+            plt.imshow(sample[temp_idx].T,  origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000, alpha = 0.5)
+            plt.title(f'Overlaid Generated HR Sample and Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'overlaid-generated-fluid-fraction-{epoch}.png'))
+            plt.clf()
+            wandb.log({"overlaid_generated_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'overlaid-generated-fluid-fraction-{epoch}.png'))}, step = epoch)
+            plt.figure(dpi= 300)
+            frame_tick()
+            plt.imshow((dataset.unscale_data(hr[0].cpu(), input_type = 'hr')[1]).T, origin = 'lower', cmap = 'gray', vmin = 0, vmax = 1, alpha = 0.5)
+            plt.imshow(dataset.unscale_data(hr[0].cpu().detach().numpy()[0], input_type = 'hr')[temp_idx].T,  origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000, alpha = 0.5)
+            plt.title(f'Overlaid GT Sample and Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'overlaid-gt-fluid-fraction-{epoch}.png'))
+            wandb.log({"overlaid_gt_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'overlaid-gt-fluid-fraction-{epoch}.png'))}, step = epoch)
+            plt.clf()
+            plt.figure(dpi= 300)
+            frame_tick()
+            temperature = sample[temp_idx]
+            fluid_fraction = sample[1]
+            masked_temperature= np.copy(temperature)
+            masked_temperature[fluid_fraction < 0.5] = 293 
+            plt.imshow(masked_temperature.T, origin = 'lower', cmap = 'jet', vmin = 293, vmax = 5000)
+
+            plt.title(f'Masked Generated HR Sample and Fluid Fraction, Epoch = {epoch}')
+            plt.colorbar()
+            plt.savefig(os.path.join(self.results_folder, f'masked-generated-fluid-fraction-{epoch}.png'))
+            plt.clf()
+            wandb.log({"masked_generated_fluid_fraction": wandb.Image(os.path.join(self.results_folder, f'masked-generated-fluid-fraction-{epoch}.png'))}, step = epoch)
+
+        scaling_factor = 1
+
+        labels = ['Input', 'Bicubic Upscaling', 'Diffusion', 'Target']
+       
+        field_idx = 0
+        fig, axs = plt.subplots(nrows=1, ncols=4, figsize=(7.8*scaling_factor, 3*scaling_factor), dpi=300)
+        fig.patch.set_alpha(0)
+
+        input = dataset.unscale_data(true_lr[0].numpy(), input_type='lr')[temp_idx].T
+        result_diffusion = dataset.unscale_data(all_images.numpy()[-1, 0], input_type='hr')[temp_idx].T
+        target = dataset.unscale_data(hr[0].cpu().numpy(), input_type='hr')[temp_idx].T
+        upscaled_lr_data = dataset.unscale_data(upscaled_lr[0].cpu().numpy(), input_type = 'upscaled_lr')[temp_idx].T
+        for i, (ax, array, label) in enumerate(zip(axs,[input, upscaled_lr_data, result_diffusion, target], labels )):
+
+            if i == 0:
+                division_factor = 2
+            else:
+                division_factor  = 1
+            xx, yy = np.meshgrid(np.arange(array.shape[-1])*10*division_factor, np.arange(array.shape[-1])*10*division_factor)
+            im = ax.pcolormesh(xx, yy, array, vmin=293, vmax=5000, cmap='jet')
+            ax.axis('equal')
+            ax.set_ylim([yy.min(), yy.max()])
+            ax.set_title(label, fontsize = 15)
+            ax.xaxis.set_tick_params(labelbottom=False)
+            ax.yaxis.set_tick_params(labelleft =False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if  i == 0:
+                ax.set_ylabel(r'z $[\mu m]$')
+                ax.set_xlabel(r'x $[\mu m]$')
+        fig.subplots_adjust(wspace = 0.01)#, hspace = 0.1)
+        cax = fig.add_axes([0.91, 0.12, 0.02, 0.77])
+        clb = fig.colorbar(im, cax=cax)
+        clb.set_ticks([293, 1000, 2000, 3000, 4000, 5000])
+        clb.ax.set_title(r'T$[K]$', fontsize=15)
+        plt.savefig(os.path.join(self.results_folder,
+                self.save_prefix + f'{split}-panel-{epoch}.png'))
+        wandb.log({f'{split}-panel': wandb.Image(os.path.join(self.results_folder,
+                    self.save_prefix + f'{split}-panel-{epoch}.png'))}, step = epoch)
+        plt.clf()
     def batch_sample(self, dataset, batch, x_e, sampler = 'DDPM', skip = None, **kwargs):
         
         timesteps = self.timesteps
@@ -460,14 +595,28 @@ class DiffusionModel():
         self.restart = restart
         self.batch_size = batch_size
         self.restart_dir = restart_dir
+        # self.model = nn.DataParallel(self.model)
+        self.model.to(self.device)
+
         self.optimizer = Adam(self.model.parameters(), lr=learning_rate)
 
         self.epochs = epochs
         if restart:
             print("Resuming training...")
             # breakpoint()
+            # breakpoint()
             checkpoint = torch.load(os.path.join(self.restart_dir, 'ckpt.pth'))
-            self.model.load_state_dict(checkpoint[0])
+            state_dict = remove_module_prefix(checkpoint[0])
+            try:
+                self.model.load_state_dict(checkpoint[0])
+            except:
+                self.model.load_state_dict(state_dict)
+            # except:
+            #     state_dict = remove_module_prefix(checkpoint[0])
+            #     self.model.load_state_dict(state_dict)
+
+
+                
             self.optimizer.load_state_dict(checkpoint[1])
             epoch = checkpoint[2]
             self.step = checkpoint[3]
@@ -475,6 +624,8 @@ class DiffusionModel():
             self.save_prefix = 'restart'
         else:
             self.start_epoch = 0
+        
+        # self.model = nn.DataParallel(self.model)
         self.train_loader = DataLoader(
             self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
         self.dev_loader = DataLoader(
@@ -487,7 +638,10 @@ class DiffusionModel():
 
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
             losses = []
+            
             self.model.train()
+
+
             for step, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(self.train_loader), total = len(self.train_loader)):
                 # Create batch for diffusion training
                 
