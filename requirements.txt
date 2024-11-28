@@ -1,0 +1,12 @@
+einops
+matplotlib
+numpy
+opencv_python
+Pillow
+PyYAML
+scikit_image
+setuptools
+torchsummary
+torchvision
+tqdm
+wandb
