@@ -1,4 +1,3 @@
-
 import os
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -11,25 +10,24 @@ import glob
 import time
 from matplotlib import pyplot as plt
 
+
+
 def filter_data(array, thresholds, field_idxs, field_names):
+
     if len(array.shape) > 2:
         for i, field in zip(field_idxs, field_names):
             threshold = thresholds[field]
-            if len(array.shape) > 2:
-
-                array_channel = array[:, :, i]
-            else:
-                array_channel = array
+            array_channel = array[:,:, i]
             array_channel[array_channel > threshold] = threshold
             array_channel[array_channel < -threshold] = -threshold
-
-            if len(array.shape) > 2:
-                array[:,:, i] = array_channel
-            else:
-                array = array_channel
-
-        # breakpoint()
-    # pass
+            array[:, :, i] = array_channel
+            array[:,:, i] = array_channel
+    else:
+        for i, field in zip(field_idxs, field_names):
+            threshold = thresholds[field]
+            array[array > threshold] = threshold
+            array[array < -threshold] = -threshold
+ 
     return array
 
 class SimulationXZDataset(Dataset):
@@ -233,8 +231,12 @@ class SimulationXZDataset(Dataset):
 
                 # print("Normalizing data...")
                 for idx, (hr_path, lr_path, true_lr_path) in tqdm(enumerate(zip(self.hr_paths, self.upscaled_lr_paths, self.lr_paths)), total=len(self.lr_paths)):
-                    hr_img = filter_data(np.load(hr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
-
+                    hr_img = filter_data(np.load(hr_path), 
+                                         thresholds=self.field_threshold, 
+                                         field_idxs = self.field_idxs,
+                                           field_names = self.field_names)
+  
+                    
                     lr_img =  filter_data(np.load(lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
 
                     true_lr_img = filter_data(np.load(true_lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
@@ -317,8 +319,8 @@ class SimulationXZDataset(Dataset):
     def __len__(self):
         return len(self.lr_paths)
     def load_file(self, folders, index):
+        
         array = filter_data(np.load(folders[index], allow_pickle=True), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
-
         return array
     def __getitem__(self, index):
         return self.testgetitem(index)
@@ -539,64 +541,34 @@ class SimulationXZDataset(Dataset):
             for i, (idx, field) in enumerate(zip(self.field_idxs, self.field_names)):
                 min = self.field_min[field]
                 max = self.field_max[field]
-                # print(min, max, hr[i].min(), hr[i].max(), field)
+              
                 if len(scaled_array.shape) == 4:
                     scaled_array[:,i] = 2*(array[:,i] - min)/(max - min) - 1
                 else:
                     scaled_array[i] = 2*(array[i] - min)/(max - min) - 1
-                # print(min, max, hr[i].min(), hr[i].max(), field)
-
             return scaled_array
-            # scaled_array = (array - self.t_min)/(self.t_max - self.t_min)
-            # scaled_array = (scaled_array*2) - 1 # convert from [0,1] to [0,2] to [-1,1]
+           
 
+def test_folder(root_folder, field_names = None, n_steps = 1, normalize = 'standardize'):
 
-def main():
-    root_folder = '../datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction'
+    if field_names is None:
+        field_names = ['temperature']
     example_dir = os.path.join(root_folder, 'example')
     os.makedirs(example_dir, exist_ok = True)
     for split in ['train', 'test', 'dev']:
         dataset = SimulationXZDataset(downscale_method='direct',
-                                      normalize='standardize',
-                                        n_steps=1,
+                                      normalize=normalize,
+                                        n_steps=n_steps,
                                         root_folder=root_folder,
                                         split=split,
-                                        field_names=['temperature', 'liqlabel'])
+                                        field_names=field_names)
         print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
     sample = dataset.testgetitem(1)
     dataloader = DataLoader(dataset, batch_size=1,
                             shuffle=True, drop_last=True)
  
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
+    res, hr, true_lr, upscaled_lr = next(iter(dataloader))
 
-    for i in range(hr.shape[1]):
-        plt.imshow(hr[0,i].T, origin = 'lower',cmap = 'jet')
-        plt.colorbar()
-        plt.savefig(os.path.join(example_dir, 'hr_initial{}.png'.format(i)))
-        plt.clf()
-    exit() # 
-    root_folder = '/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data'#'/home/oogoke/DiffusionSR/datasets/ss316l_v2_all_laser_velocity_xz_cross_section_data'
-    example_dir =os.path.join(root_folder, 'example')
-    os.makedirs(example_dir, exist_ok = True)
-    print("Testing multiple field values")
-    for split in ['train', 'test', 'dev']:
-        dataset = SimulationXZDataset(downscale_method='direct',
-                                      normalize='rescaling',
-                                      n_steps=1,
-                                      root_folder=root_folder,
-                                      split=split,
-                                      field_names= ['vx', 'temperature',  'vy', 'vz', 'liqlabel'], cross_validate=True)
-        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    # dataset.testgetitem(1)
-
-    dataloader = DataLoader(dataset, batch_size=1,
-                            shuffle=True, drop_last=True)
-    # for res, hr, true_lr, upscaled_lr in dataloader:
-    #     time.sleep(1)
-    #     print(true_lr[:,3].max(), true_lr[:,3].min())
-    #     print(dataset.unscale_data(true_lr, input_type='lr')[:,3].max(), dataset.unscale_data(true_lr, input_type='lr')[:,3].min())
-    #     print('')
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
     for i in range(hr.shape[1]):
         plt.imshow(hr[0,i].T, origin = 'lower',cmap = 'jet')
         plt.colorbar()
@@ -623,176 +595,67 @@ def main():
         plt.colorbar()
         plt.savefig(os.path.join(example_dir, 'hr_original_space{}.png'.format(i)))
         plt.clf()
-
-
-    plt.imshow(hr[0,1].T, origin = 'lower',cmap = 'jet')
+   
+    plt.imshow(hr[0,0].T, origin = 'lower',cmap = 'jet')
     plt.savefig(os.path.join(example_dir, 'temp_hr_initial.png'))
 
     hr_scaled = dataset.unscale_data(hr, input_type= 'hr')
 
 
-    plt.imshow(hr_scaled[0,1].T, origin = 'lower',cmap = 'jet')
+    plt.imshow(hr_scaled[0,0].T, origin = 'lower',cmap = 'jet')
     plt.colorbar()
     plt.savefig(os.path.join(example_dir, 'temp_hr_unscaled.png'))
     plt.clf()
     hr_standardized = dataset.rescale_data(hr_scaled, input_type = 'hr', normalize = 'standardize')
 
 
-    plt.imshow(hr_standardized[0,1].T, origin = 'lower',cmap = 'jet')
+    plt.imshow(hr_standardized[0,0].T, origin = 'lower',cmap = 'jet')
     plt.savefig(os.path.join(example_dir, 'temp_hr_standardized.png'))
 
     hr_original_space = dataset.unscale_data(hr_standardized, input_type = 'hr', normalize = 'standardize')
 
 
-    plt.imshow(hr_original_space[0,1].T, origin = 'lower',cmap = 'jet')
+    plt.imshow(hr_original_space[0,0].T, origin = 'lower',cmap = 'jet')
     plt.colorbar()
     plt.savefig(os.path.join(example_dir, 'temp_hr_original_space.png'))
     plt.clf()
 
-
-    # breakpoint()
-    lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    print(np.mean(lr_unscale, axis = (0,2, 3)))
-    print(res.shape, hr.shape, true_lr.shape)
-    print("Testing single field values")
-    for split in ['train', 'test', 'dev']:
-        dataset = SimulationXZDataset(downscale_method='direct',
-                                      normalize='standardize',
-                                      n_steps=1,
-                                      root_folder=root_folder,
-                                      split=split,
-                                      field_names=['temperature'])
-        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    dataset.testgetitem(1)
-
-    dataloader = DataLoader(dataset, batch_size=4,
-                            shuffle=True, drop_last=True)
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
-    lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    print(np.mean(lr_unscale.numpy(), axis = (0,2, 3)))
-    print(res.shape, hr.shape, true_lr.shape)
-
-    # print("Testing 5 micron data, single field, organized")
-    # root_folder = '/home/oogoke/DiffusionSR/datasets/simulation_basis_laser_velocity_xz_cross_section_data'
-    # for split in ['train', 'test', 'dev']:
-    #     dataset = SimulationXZDataset(downscale_method='direct',
-    #                                   normalize='standardize',
-    #                                   n_steps=1,
-    #                                   root_folder=root_folder,
-    #                                   split=split,
-    #                                   field_names=['temperature'])
-    #     print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    # dataset.testgetitem(1)
-
-    # dataloader = DataLoader(dataset, batch_size=4,
-    #                         shuffle=True, drop_last=True)
-    # res, hr, true_lr, upscaled_lr = iter(dataloader).next()
-    # lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    # print(np.mean(lr_unscale.numpy(), axis = (0,2, 3)))
-    # print(res.shape, hr.shape, true_lr.shape)
+    return 
 
 
-
+def main():
+    # Testing single field value
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    print(current_directory)
+    data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
+    test_folder(os.path.join(data_folder, 'expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame'))
     print("Testing 5 micron data, single field, unorganized")
-    root_folder = '/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data'
-    for split in ['train', 'test', 'dev']:
-        dataset = SimulationXZDataset(downscale_method='direct',
-                                        normalize='standardize',
-                                        n_steps=3,
-                                        root_folder=root_folder,
-                                        split=split,
-                                        field_names=['temperature'])
-        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    dataset.testgetitem(1)
 
-    dataloader = DataLoader(dataset, batch_size=4,
-                            shuffle=True, drop_last=True)
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
-    lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    print(np.mean(lr_unscale.numpy(), axis = (0,2, 3)))
-    print(res.shape, hr.shape, true_lr.shape)
 
-    example_dir =os.path.join(root_folder, 'example')
-    os.makedirs(example_dir, exist_ok = True)
-    from matplotlib import pyplot as plt
-    plt.imshow(dataset.unscale_data(hr, input_type = 'hr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'hr.png'))
-    plt.imshow(dataset.unscale_data(true_lr, input_type = 'lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'lr.png'))
-    plt.imshow(dataset.unscale_data(upscaled_lr, input_type = 'upscaled_lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'upscaled_lr.png'))
-    plt.imshow(hr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'hr_normalized.png'))
-    plt.imshow(true_lr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'lr_normalized.png'))
-    plt.imshow(dataset.mean_hr.T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'meanhr.png'))
-    print("Testing 5 micron data, single field, organized by simulation")
-
+    # Testing multiple field values
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    print(current_directory)
+    data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
+    test_folder(os.path.join(data_folder, 'expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame'))
     print("Testing 5 micron data, single field, unorganized")
-    root_folder = '/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data'
-    for split in ['train', 'test', 'dev']:
-        dataset = SimulationXZDataset(downscale_method='direct',
-                                        normalize='rescaling',
-                                        n_steps=3,
-                                        root_folder=root_folder,
-                                        split=split,
-                                        field_names=['temperature'])
-        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    dataset.testgetitem(1)
 
-    dataloader = DataLoader(dataset, batch_size=4,
-                            shuffle=True, drop_last=True)
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
-    lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    print(np.mean(lr_unscale, axis = (0,2, 3)))
-    print(res.shape, hr.shape, true_lr.shape)
 
-    example_dir =os.path.join(root_folder, 'example')
-    os.makedirs(example_dir, exist_ok = True)
-    from matplotlib import pyplot as plt
-    plt.imshow(dataset.unscale_data(hr, input_type = 'hr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'rescalinghr.png'))
-    plt.imshow(dataset.unscale_data(true_lr, input_type = 'lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'rescalinglr.png'))
-    plt.imshow(dataset.unscale_data(upscaled_lr, input_type = 'upscaled_lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'rescalingupscaled_lr.png'))
-    plt.imshow(hr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'rescalinghr_normalized.png'))
-    plt.imshow(true_lr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'rescalinglr_normalized.png'))
-    print("Testing 5 micron data, single field, organized by simulation")
-    root_folder = '/home/oogoke/DiffusionSR/datasets/simulation_basis_v3_laser_velocity_xz_cross_section_data'
-    for split in ['train', 'test', 'dev']:
-        dataset = SimulationXZDataset(downscale_method='direct',
-                                      normalize='standardize',
-                                      n_steps=1,
-                                      root_folder=root_folder,
-                                      split=split,
-                                      field_names=['temperature'])
-        print(str(len(dataset.hr_paths)) + " samples available, in {} partition".format(split))
-    dataset.testgetitem(1)
 
-    dataloader = DataLoader(dataset, batch_size=4,
-                            shuffle=True, drop_last=True)
-    res, hr, true_lr, upscaled_lr = iter(dataloader).next()
-    example_dir =os.path.join(root_folder, 'example')
-    os.makedirs(example_dir, exist_ok = True)
-    from matplotlib import pyplot as plt
-    plt.imshow(dataset.unscale_data(hr, input_type = 'hr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'hr.png'))
-    plt.imshow(dataset.unscale_data(true_lr, input_type = 'lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'lr.png'))
-    plt.imshow(dataset.unscale_data(upscaled_lr, input_type = 'upscaled_lr')[0,0].T, origin = 'lower', vmin = 293, vmax = 5000,cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'upscaled_lr.png'))
-    plt.imshow(hr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'hr_normalized.png'))
-    plt.imshow(true_lr[0,0].T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'lr_normalized.png'))
-    plt.imshow(dataset.mean_hr.T, origin = 'lower',cmap = 'jet')
-    plt.savefig(os.path.join(example_dir, 'meanhr.png'))
-    lr_unscale= dataset.unscale_data(true_lr, input_type = 'lr')
-    print(np.mean(lr_unscale.numpy(), axis = (0,2, 3)))
-    print(res.shape, hr.shape, true_lr.shape)
+    # root_folder = '/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data'
+    folder_path = 'update_v2_laser_velocity_xz_cross_section_data'
+    data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
+    test_folder(os.path.join(data_folder, folder_path), n_steps = 3, normalize = 'standardize', field_names=['temperature'])
+
+    folder_path = 'update_v2_laser_velocity_xz_cross_section_data'
+    data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
+    test_folder(os.path.join(data_folder, folder_path), n_steps = 3, normalize = 'rescaling', field_names=['temperature'])
+
+
+
+    folder_path = 'simulation_basis_v3_laser_velocity_xz_cross_section_data'
+    data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
+    test_folder(os.path.join(data_folder, folder_path))
+
+    
 if __name__ == '__main__':
     main()

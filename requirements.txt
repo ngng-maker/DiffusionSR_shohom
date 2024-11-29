@@ -10,3 +10,4 @@ torchsummary
 torchvision
 tqdm
 wandb
+gdown

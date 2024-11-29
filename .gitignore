@@ -166,6 +166,7 @@ cython_debug/
 runs/*
 misc/*
 datasets/update_v2_laser_velocity_xz_cross_section_data/*
+data/*npy
 datasets/**/*npy
 datasets/__pycache__/*
 analysis/__pycache__/*
@@ -205,3 +206,4 @@ wandb/*
 wandb
 runners/__pycache__/train_diffusion.cpython-38.pyc
 runners/__pycache__/train_rrdn_encoder.cpython-38.pyc
+*npy
