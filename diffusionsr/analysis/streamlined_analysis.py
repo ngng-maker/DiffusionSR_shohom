@@ -5,8 +5,8 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt 
 from datasets.dataset import SimulationXZDataset
 import wandb
-from DiffusionSR.analysis.analysis_functions import initialize_diffusion
-from DiffusionSR.analysis.analysis_functions import predict_lrenc, predict_refactored_diffusion, load_encoder
+from diffusionsr.analysis.analysis_functions import initialize_diffusion
+from diffusionsr.analysis.analysis_functions import predict_lrenc, predict_refactored_diffusion, load_encoder
 import argparse
 
 
@@ -59,44 +59,6 @@ diff_model = initialize_diffusion(diff_dir=diffusion_results_dir,
 
 lr_enc = load_encoder(encoder_results_dir, dataset = train_dataset)
 
-# def predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, dataset, skip = 50):
-
-#     '''
-#     Return the predictions for the Diffusion model given an input batch
-#     Parameters:
-#     diff_model: DiffusionModel object
-#     lr_enc: Torch network module object, representing the trained RRDN encoder model
-#     res: Torch tensor, Residual between HR and LR data
-#     hr: Torch tensor, High Resolution data
-#     lr: Torch tensor, Low Resolution data
-#     upscaled_lr: Torch tensor, Bicubic upscaled low resolution data
-#     dataset: Dataset object, used for rescaling data
-#     Returns:
-#     Low resolution data, scaled to original space, 4-D numpy array (batch, channels, height, width)
-#     Output (Super-resolution), scaled to original space, 4-D numpy array
-#     High resolution data, scaled to original space, 4-D numpy array 
-#     '''
-
-#     if len(lr.shape) < 4:
-#         img = (lr.view(lr.shape[0], 1, lr.shape[1], lr.shape[2]).to(device))
-#         target = (hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2]).to(device))
-#     else:
-#         img = lr.to(device)
-#         target = hr.to(device)
-#     if len(lr.shape) < 4:
-
-#         x_e = forwardpass(lr_enc, lr.view(lr.shape[0],1, lr.shape[1], lr.shape[2]).to(device).float(), factor = dataset.factor)
-#     else:
-#         x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
-#         # x_e = forwardpass(lr_enc, lr.to(device).float())
-#         all_images = diff_model.batch_sample(dataset = dataset, batch = hr.to(device), x_e = x_e.to(device), sampler = 'DDPM', skip= skip)                
-#         result = dataset.unscale_data(all_images.cpu().numpy()[-1, 0], input_type = 'residual') + dataset.unscale_data(upscaled_lr.numpy(), input_type = 'upscaled_lr')
-        
-#     return dataset.unscale_data(lr, input_type='lr'), result, dataset.unscale_data(target.cpu(), input_type = 'hr')
-
-
-# for array in [input, upscaled_lr_data, result_diffusion, target]:
-
 scaling_factor = 1
 
 labels = ['Input', 'Bicubic Upscaling', 'CNN', 'Diffusion', 'Target']
@@ -110,11 +72,10 @@ for k in range(10):
     for j,(row, batch_index) in enumerate(zip(axs, batch_idxs)):
         for batch_idx, (res, hr, lr, upscaled_lr, info_full) in tqdm(enumerate(test_dataloader), total = len(test_dataloader) ):
             if batch_idx == batch_index:
-                input, result, target = predict_lrenc(lr_enc,res, hr, lr, upscaled_lr, train_dataset)
-                input, result_diffusion, target = predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, test_dataloader.dataset, skip = skip)
-                # input, result_diffusion, target, _, _ = predict_modified_ddim_diffusion(diff_model.model, lr_enc, res, hr, lr, upscaled_lr,encoding = encode_bool,dataset =  train_dataset,seq= None, timesteps = timesteps,skip = skip, schedule = 'linear')
+                input_sample, result, target = predict_lrenc(lr_enc,res, hr, lr, upscaled_lr, train_dataset)
+                input_sample, result_diffusion, target = predict_refactored_diffusion(diff_model, lr_enc, res, hr, lr, upscaled_lr, test_dataloader.dataset, skip = skip)
                 upscaled_lr_data = test_dataloader.dataset.unscale_data(upscaled_lr, input_type = 'upscaled_lr')
-                for i, (ax, array, label) in enumerate(zip(row,[input, upscaled_lr_data, result, result_diffusion, target], labels )):
+                for i, (ax, array, label) in enumerate(zip(row,[input_sample, upscaled_lr_data, result, result_diffusion, target], labels )):
                     if i == 0:
                         division_factor = 2
                         bound = 10

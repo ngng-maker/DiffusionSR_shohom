@@ -27,7 +27,7 @@ def filter_data(array, thresholds, field_idxs, field_names):
         >>> field_names = ['temperature', 'velocity']
         >>> filtered_array = filter_data(array, thresholds, field_idxs, field_names)
     '''
-  
+
     if len(array.shape) > 2:
         for i, field in zip(field_idxs, field_names):
             threshold = thresholds[field]

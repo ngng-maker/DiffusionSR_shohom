@@ -6,8 +6,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 import wandb
-from DiffusionSR.datasets.dataset import SimulationXZDataset
-from DiffusionSR.analysis.analysis_functions import (
+from diffusionsr.datasets.dataset import SimulationXZDataset
+from diffusionsr.analysis.analysis_functions import (
     initialize_diffusion,
     predict_lrenc,
     predict_refactored_diffusion,
@@ -25,7 +25,7 @@ run = wandb.Api().run(f'fogoke/Flow3D_SuperResolution/{wandb_id}')
 config = run.config
 
 # Extract configuration details
-device = 'cuda:7'
+device = 'cuda:0'
 encode_bool = config['encoding'] == 'True'
 analysis_folder = f"analyzed_figures_paper_3_20/{config['timesteps']}_{config['conditioning']}_{config['schedule']}_direct"
 os.makedirs(analysis_folder, exist_ok=True)

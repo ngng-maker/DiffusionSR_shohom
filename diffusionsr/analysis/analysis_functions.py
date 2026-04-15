@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from DiffusionSR.models.diffusion_model import Unet
-from DiffusionSR.models.lr_encoder_model import rrdbnet_encoder
-from DiffusionSR.models.mobilenet_model import MobileNetv2_SISR
-from pylab import gca
+from diffusionsr.models.diffusion_model import Unet
+from diffusionsr.models.lr_encoder_model import rrdbnet_encoder
+from diffusionsr.models.mobilenet_model import MobileNetv2_SISR
 from tqdm import tqdm
-from DiffusionSR.datasets.dataset import SimulationXZDataset
-from DiffusionSR.runners.train_diffusion import forwardpass, num_to_groups
+from diffusionsr.datasets.dataset import SimulationXZDataset
+from diffusionsr.runners.train_diffusion import forwardpass, num_to_groups
 from skimage.metrics import structural_similarity as ssim_id
-from DiffusionSR.runners.train_diffusion import DiffusionModel
+from diffusionsr.runners.train_diffusion import DiffusionModel
+from diffusionsr.analysis.plotting_functions import frame_tick, legend
 
 device = 'cuda'
 

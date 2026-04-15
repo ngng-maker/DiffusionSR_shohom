@@ -1,13 +1,10 @@
 import os
-from torchvision import transforms
 from torch.utils.data import DataLoader
-from pathlib import Path
 from torch.utils.data import Dataset
 import numpy as np
 import torch
 from tqdm import tqdm
 import glob
-import time
 from matplotlib import pyplot as plt
 from diffusionsr.datasets.dataset_utils import filter_data
 
@@ -18,7 +15,6 @@ class SimulationXZDataset(Dataset):
                  split='train',
                  normalize='standardize',
                  return_info=False, 
-                 cross_validate  = False,
                  n_steps=1,
                  field_names = None, 
                  out_steps = None):
@@ -46,6 +42,13 @@ class SimulationXZDataset(Dataset):
                                 'temperature': self.THRESHOLD_T, 
                                 'pressure': 1e7, 'vy':1000, 'vz': 1000, 'liqlabel': 1 }
       
+        if 'ss316l' in self.root_folder:
+            # all_field_names = { 'temperature':0}
+            all_field_names = {'temperature':0, 'liqlabel':1}
+        else:
+            all_field_names = {'temperature':0}
+
+
         if field_names is None:
             print(f"Using all {(len(all_field_names.keys()))} fields")
             self.field_names = list(all_field_names.keys())
@@ -61,11 +64,6 @@ class SimulationXZDataset(Dataset):
         self.times = []
 
         # Set indices for specific fields
-        if 'ss316l' in self.root_folder:
-            # all_field_names = { 'temperature':0}
-            all_field_names = { 'temperature':0, 'liqlabel':1}
-        else:
-            all_field_names = {'temperature':0}
 
         self.field_idxs_steps = []
         for i in range(self.n_steps):
@@ -151,71 +149,71 @@ class SimulationXZDataset(Dataset):
         test_hr_shape.insert(0, len(self.lr_paths))
         test_lr_shape.insert(0, len(self.lr_paths))
         if self.split == 'train' and not os.path.exists(os.path.join(self.root_folder, 'statistics', self.downscale_method, 'flag')):
-                all_residuals = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), test_hr_shape[0], ))
-                all_hr =  np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
+            all_residuals = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), test_hr_shape[0], ))
+            all_hr =  np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
 
-                all_lr =  np.zeros(tuple(test_lr_shape)) # np.zeros((len(self.lr_paths), 20, 20))
-                all_upscaled_lr = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
+            all_lr =  np.zeros(tuple(test_lr_shape)) # np.zeros((len(self.lr_paths), 20, 20))
+            all_upscaled_lr = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
 
-                # print("Normalizing data...")
-                for idx, (hr_path, lr_path, true_lr_path) in tqdm(enumerate(zip(self.hr_paths, self.upscaled_lr_paths, self.lr_paths)), total=len(self.lr_paths)):
-                    hr_img = filter_data(np.load(hr_path), 
-                                         thresholds=self.field_threshold, 
-                                         field_idxs = self.field_idxs,
-                                           field_names = self.field_names)
-  
-                    
-                    lr_img =  filter_data(np.load(lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
-
-                    true_lr_img = filter_data(np.load(true_lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
-
-                    all_residuals[idx] = (hr_img - lr_img)
-                    all_lr[idx] = true_lr_img
-                    all_hr[idx] = hr_img
-                    all_upscaled_lr[idx] = lr_img
+            # print("Normalizing data...")
+            for idx, (hr_path, lr_path, true_lr_path) in tqdm(enumerate(zip(self.hr_paths, self.upscaled_lr_paths, self.lr_paths)), total=len(self.lr_paths)):
+                hr_img = filter_data(np.load(hr_path), 
+                                        thresholds=self.field_threshold, 
+                                        field_idxs = self.field_idxs,
+                                        field_names = self.field_names)
 
                 
-                if len(all_lr.shape) > 3:
-                    all_lr = np.moveaxis(all_lr, -1, 1)
-                    all_hr = np.moveaxis(all_hr, -1, 1)
-                    all_residuals = np.moveaxis(all_residuals, -1, 1)
-                    all_upscaled_lr = np.moveaxis(all_upscaled_lr, -1, 1)
+                lr_img =  filter_data(np.load(lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
 
-                self.std_lr = np.std(all_lr, axis=0)
-                self.mean_lr = np.mean(all_lr, axis=0)
-                self.mean_upscaled_lr = np.mean(all_upscaled_lr, axis=0)
-                self.std_upscaled_lr = np.std(all_upscaled_lr, axis=0)
-                self.std_resid = np.std(all_residuals, axis=0)
-                self.mean_resid = np.mean(all_residuals, axis=0)
-                self.std_hr = np.std(all_hr, axis=0)
-                self.mean_hr = np.mean(all_hr, axis=0)
-   
-                self.stats_path = os.path.join(
-                    self.root_folder, 'statistics', self.downscale_method)
-                
+                true_lr_img = filter_data(np.load(true_lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
 
-                # Create the statistics directory
-                statistics_dir = os.path.join(self.root_folder, 'statistics', self.downscale_method)
-                os.makedirs(statistics_dir, exist_ok=True)
+                all_residuals[idx] = (hr_img - lr_img)
+                all_lr[idx] = true_lr_img
+                all_hr[idx] = hr_img
+                all_upscaled_lr[idx] = lr_img
 
-                # Data to save and corresponding filenames
-                data_to_save = {
-                    'std_lr': self.std_lr,
-                    'mean_lr': self.mean_lr,
-                    'mean_resid': self.mean_resid,
-                    'std_resid': self.std_resid,
-                    'mean_hr': self.mean_hr,
-                    'std_hr': self.std_hr,
-                    'mean_upscaled_lr': self.mean_upscaled_lr,
-                    'std_upscaled_lr': self.std_upscaled_lr
-                }
+            
+            if len(all_lr.shape) > 3:
+                all_lr = np.moveaxis(all_lr, -1, 1)
+                all_hr = np.moveaxis(all_hr, -1, 1)
+                all_residuals = np.moveaxis(all_residuals, -1, 1)
+                all_upscaled_lr = np.moveaxis(all_upscaled_lr, -1, 1)
 
-                # Save each data array
-                for name, data in data_to_save.items():
-                    np.save(os.path.join(statistics_dir, name), data)
+            self.std_lr = np.std(all_lr, axis=0)
+            self.mean_lr = np.mean(all_lr, axis=0)
+            self.mean_upscaled_lr = np.mean(all_upscaled_lr, axis=0)
+            self.std_upscaled_lr = np.std(all_upscaled_lr, axis=0)
+            self.std_resid = np.std(all_residuals, axis=0)
+            self.mean_resid = np.mean(all_residuals, axis=0)
+            self.std_hr = np.std(all_hr, axis=0)
+            self.mean_hr = np.mean(all_hr, axis=0)
 
-                # Flag indicates that the statistics have been pre-computed
-                np.savetxt(os.path.join(statistics_dir, 'flag'), np.array([0]))
+            self.stats_path = os.path.join(
+                self.root_folder, 'statistics', self.downscale_method)
+            
+
+            # Create the statistics directory
+            statistics_dir = os.path.join(self.root_folder, 'statistics', self.downscale_method)
+            os.makedirs(statistics_dir, exist_ok=True)
+
+            # Data to save and corresponding filenames
+            data_to_save = {
+                'std_lr': self.std_lr,
+                'mean_lr': self.mean_lr,
+                'mean_resid': self.mean_resid,
+                'std_resid': self.std_resid,
+                'mean_hr': self.mean_hr,
+                'std_hr': self.std_hr,
+                'mean_upscaled_lr': self.mean_upscaled_lr,
+                'std_upscaled_lr': self.std_upscaled_lr
+            }
+
+            # Save each data array
+            for name, data in data_to_save.items():
+                np.save(os.path.join(statistics_dir, name), data)
+
+            # Flag indicates that the statistics have been pre-computed
+            np.savetxt(os.path.join(statistics_dir, 'flag'), np.array([0]))
 
 
         elif not self.split == 'train' and not os.path.exists(os.path.join(self.root_folder, 'statistics', self.downscale_method, 'flag')):
@@ -264,9 +262,7 @@ class SimulationXZDataset(Dataset):
         try:
             single_upscaled_lr = self.load_file(self.upscaled_lr_paths, index = index)
         except:
-            print(f"Upscaled low resolution data not found for this dataset ({self.downscale_method}, 
-                  {self.root_folder}), defaulting to HR instead")
-
+            print(f"Upscaled low resolution data not found for this dataset ({self.downscale_method}, {self.root_folder}), defaulting to HR instead")
             single_upscaled_lr = self.load_file(self.hr_paths, index = index)
 
 
@@ -375,6 +371,8 @@ class SimulationXZDataset(Dataset):
                     unscaledarray = array*self.std_upscaled_lr[None, :, :][tuple([self.field_idxs_steps])] + self.mean_upscaled_lr[None, :, :][tuple([self.field_idxs_steps])]
                 if input_type == 'residual':
                     unscaledarray = array*self.std_resid[None, :, :][tuple([self.field_idxs_steps])] + self.mean_resid[None, :, :][tuple([self.field_idxs_steps])]
+                else:
+                    raise Exception(f'Input type not found {input_type}')
                 return unscaledarray
             else:
                 if input_type == 'hr':
@@ -564,6 +562,6 @@ def main():
     data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
     test_folder(os.path.join(data_folder, folder_path))
 
-    
+
 if __name__ == '__main__':
     main()
