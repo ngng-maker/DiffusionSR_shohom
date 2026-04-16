@@ -1,13 +1,18 @@
+# Day-to-day install. Ranges set to the versions we've actually exercised
+# against; NumPy is capped at <2.0 because the scientific-Python stack only
+# fully caught up in mid-2024 and older pins in the ecosystem still assume
+# the 1.x ABI. For the exact versions used to train the paper models, see
+# requirements_paper_exact.txt.
+torch>=1.13,<3
+torchvision>=0.14,<1
+numpy>=1.22,<2.0
+wandb>=0.15
 einops
 matplotlib
-numpy
-opencv_python
+opencv-python
 Pillow
 PyYAML
-scikit_image
-setuptools
+scikit-image
 torchsummary
-torchvision
 tqdm
-wandb
 gdown

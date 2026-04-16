@@ -1,0 +1,20 @@
+# Exact package versions used to train and evaluate the models reported in
+# the Materials & Design 2024 paper. The original environment ran on Ubuntu
+# 20.04 with Python 3.9 and an NVIDIA RTX-2080 (CUDA 11.1).
+#
+# These pins will NOT install on most newer hardware (CUDA 11.1 does not
+# support Ampere and later GPUs) or on Python >= 3.11 (numpy 1.20 is not
+# compatible). For day-to-day use, install from requirements.txt instead.
+einops==0.8.0
+matplotlib==3.5.2
+numpy==1.20.3
+opencv_python==4.6.0.66
+Pillow==9.1.0
+PyYAML==6.0.2
+scikit_image==0.19.2
+setuptools==68.2.2
+torch==1.10.1+cu111
+torchsummary==1.5.1
+torchvision==0.11.2+cu111
+tqdm==4.62.3
+wandb==0.16.0
