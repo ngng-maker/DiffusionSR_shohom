@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
-from models.diffusion_model import Unet
-from models.lr_encoder_model import rrdbnet_encoder
+from diffusionsr.models.diffusion_model import Unet
+from diffusionsr.models.lr_encoder_model import rrdbnet_encoder
 from pylab import gca
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm

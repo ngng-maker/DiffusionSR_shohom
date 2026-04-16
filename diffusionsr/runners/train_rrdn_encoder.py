@@ -2,12 +2,12 @@ from tqdm import tqdm
 import time
 import os
 import time
-from analysis.plotting_functions import frame_tick
+from diffusionsr.analysis.plotting_functions import frame_tick
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchsummary
-from models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
+from diffusionsr.models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm

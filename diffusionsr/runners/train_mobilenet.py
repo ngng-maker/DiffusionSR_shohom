@@ -18,7 +18,7 @@ import pdb
 from PIL import Image
 import matplotlib.pyplot as plt 
 from skimage.metrics import structural_similarity as ssim
-from models.mobilenet_model import MobileNetv2_SISR, test_predictions, train_epoch, dev_epoch
+from diffusionsr.models.mobilenet_model import MobileNetv2_SISR, test_predictions, train_epoch, dev_epoch
 from torch.utils.data import DataLoader
 import numpy as np
 import torchsummary

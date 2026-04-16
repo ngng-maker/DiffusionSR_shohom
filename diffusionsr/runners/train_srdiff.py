@@ -5,12 +5,12 @@ import shutil
 
 import torch
 import yaml
-from datasets.dataset import SimulationXZDataset
+from diffusionsr.datasets.dataset import SimulationXZDataset
 from torch.utils.data import DataLoader
 
-from runners.train_diffusion import DiffusionModel
-from runners.train_mobilenet import train_mobilenet
-from runners.train_rrdn_encoder import pretrain_encoder
+from diffusionsr.runners.train_diffusion import DiffusionModel
+from diffusionsr.runners.train_mobilenet import train_mobilenet
+from diffusionsr.runners.train_rrdn_encoder import pretrain_encoder
 import wandb
 
 def dict2namespace(config):

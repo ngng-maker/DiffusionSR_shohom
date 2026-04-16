@@ -3,7 +3,7 @@ from tqdm import tqdm
 import os
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt 
-from datasets.dataset import SimulationXZDataset
+from diffusionsr.datasets.dataset import SimulationXZDataset
 import wandb
 from diffusionsr.analysis.analysis_functions import initialize_diffusion
 from diffusionsr.analysis.analysis_functions import predict_lrenc, predict_refactored_diffusion, load_encoder

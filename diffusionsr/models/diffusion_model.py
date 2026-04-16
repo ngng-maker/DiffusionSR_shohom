@@ -12,7 +12,7 @@ from pylab import gca
 import os
 
 from torchvision.utils import save_image
-from models.lr_encoder_model import rrdbnet_encoder
+from diffusionsr.models.lr_encoder_model import rrdbnet_encoder
 
 def exists(x):
     return x is not None
