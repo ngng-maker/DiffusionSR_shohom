@@ -49,7 +49,6 @@ def predict_streamlined_ddim_diffusion(model,  hr, lr, x_e, dataset, timesteps =
     
     # skip =timesteps // self.args.timesteps
     seq = range(0, timesteps, skip)
-    print(timesteps)
     b = get_timesteps(schedule, timesteps = timesteps)
     
     if len(lr.shape) < 4:

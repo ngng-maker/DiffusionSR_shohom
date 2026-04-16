@@ -99,9 +99,6 @@ def predict_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timestep
     else:
         x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor)
     batches = num_to_groups(1, lr.shape[0])
-    print(timesteps, batches, img.shape[0])
-    print(x_e.shape)
-
 
     def extract(a, t, x_shape):
         batch_size = t.shape[0]
@@ -200,7 +197,6 @@ def predict_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timestep
         betas = quadratic_beta_schedule(timesteps=timesteps)
     elif schedule == 'sigmoid':
         betas = sigmoid_beta_schedule(timesteps=timesteps)
-    print("TIMESTEPS == {}, Schedule = {}".format(timesteps, schedule))
 
     # define alphas
     alphas = 1. - betas
@@ -339,9 +335,6 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
     else:
         x_e = forwardpass(lr_enc, lr.to(device).float(), factor = dataset.factor, transform_rescale =transform_rescale, dataset =dataset)
     batches = num_to_groups(1, lr.shape[0])
-    print(timesteps, batches, img.shape[0])
-    print(x_e.shape)
-
 
     def extract(a, t, x_shape):
         batch_size = t.shape[0]
@@ -440,7 +433,6 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
         betas = cosine_beta_schedule(timesteps=timesteps)
     elif schedule == 'sigmoid':
         betas = sigmoid_beta_schedule(timesteps=timesteps)
-    print("TIMESTEPS == {}, Schedule = {}".format(timesteps, schedule))
 
     # define alphas
     alphas = 1. - betas

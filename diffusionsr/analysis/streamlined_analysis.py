@@ -82,9 +82,7 @@ for k in range(10):
                     else:
                         division_factor  = 1
                         bound = 20
-                    print("DIVISION FACTOR", division_factor)
                     xx, yy = np.meshgrid(np.arange(28//division_factor)*10*division_factor, np.arange(20//division_factor)*10*division_factor)
-                    print(array.shape[-1])
                     im = ax.pcolormesh(xx, yy, array[0,0][12//division_factor:40//division_factor, bound:-bound].T,vmin = 293, vmax = 5000,cmap='jet')
                     ax.axis('equal')
                     ax.set_ylim([yy.min(), yy.max()])
