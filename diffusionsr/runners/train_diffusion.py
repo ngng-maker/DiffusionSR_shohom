@@ -183,7 +183,7 @@ class DiffusionModel():
         self.device = device
         torch.manual_seed(0)
         self.results_folder = Path(self.results_folder)
-        self.results_folder.mkdir(exist_ok=True)
+        self.results_folder.mkdir(parents=True, exist_ok=True)
         if out_steps is None:
             self.channels = self.train_dataset.n_steps*self.train_dataset.num_fields
         else:
