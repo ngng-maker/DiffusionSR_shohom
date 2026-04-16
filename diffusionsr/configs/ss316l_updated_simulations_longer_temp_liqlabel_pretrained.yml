@@ -1,5 +1,5 @@
 
-root_folder: "/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction"
+root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_fluid_fraction"
 downscale_method: "direct" 
 n_steps: "1" 
 encoding: True
@@ -15,7 +15,7 @@ batch_size: 32
 epochs: 1000
 learning_rate: 5e-5
 use_pretrained: True 
-encoder_results_dir: "/home/oogoke/DiffusionSR/runs/direct/encoder/2024_07_15_00_52_22/standardize/n_steps_1"
+encoder_results_dir: "./runs/direct/encoder/2024_07_15_00_52_22/standardize/n_steps_1"
 
   
 

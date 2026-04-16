@@ -1,5 +1,5 @@
 
-root_folder: "/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data"
+root_folder: "./data/update_v2_laser_velocity_xz_cross_section_data"
 downscale_method: "lanczos" 
 n_steps: "1" 
 

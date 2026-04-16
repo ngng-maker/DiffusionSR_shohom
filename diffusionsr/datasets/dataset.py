@@ -547,7 +547,6 @@ def main():
 
 
 
-    # root_folder = '/home/oogoke/DiffusionSR/datasets/update_v2_laser_velocity_xz_cross_section_data'
     folder_path = 'update_v2_laser_velocity_xz_cross_section_data'
     data_folder = os.path.abspath(os.path.join(current_directory, '../../data'))
     test_folder(os.path.join(data_folder, folder_path), n_steps = 3, normalize = 'standardize', field_names=['temperature'])

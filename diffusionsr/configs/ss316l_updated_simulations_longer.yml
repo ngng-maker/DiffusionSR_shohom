@@ -1,5 +1,5 @@
 
-root_folder: "/home/oogoke/DiffusionSR/datasets/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
+root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
 downscale_method: "direct" 
 n_steps: "1" 
 encoding: True
@@ -15,6 +15,6 @@ batch_size: 32
 epochs: 1000
 learning_rate: 5e-5
 use_pretrained: True
-encoder_results_dir: '/home/oogoke/DiffusionSR/runs/direct/encoder/2023_10_06_17_48_51/standardize/n_steps_1'
+encoder_results_dir: './runs/direct/encoder/2023_10_06_17_48_51/standardize/n_steps_1'
   
 
