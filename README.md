@@ -1,5 +1,10 @@
 # Inexpensive High Fidelity Melt Pool Models in Additive Manufacturing using Generative Deep Diffusion
 
+[![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.matdes.2024.113181-blue)](https://doi.org/10.1016/j.matdes.2024.113181)
+[![arXiv](https://img.shields.io/badge/arXiv-2311.16168-b31b1b.svg)](https://arxiv.org/abs/2311.16168)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9](https://img.shields.io/badge/python-3.9-blue.svg)](https://www.python.org/downloads/)
+
 This repository is the implementation of ["Inexpensive high fidelity melt pool models in additive manufacturing using generative deep diffusion"](https://doi.org/10.1016/j.matdes.2024.113181), published in *Materials & Design* 245 (2024) 113181. The project uses a conditional denoising diffusion probabilistic model, paired with a Residual-in-Residual Dense Network (RRDN) CNN encoder, to upscale low-fidelity Laser Powder Bed Fusion (L-PBF) simulations of the melt pool to a high-fidelity counterpart. By doing so, the framework bypasses the computational expense of running multiple high-fidelity multi-physics simulations, predicting melt pool depth within 3 μm from input data 4× coarser than the high-fidelity target, and reducing analysis time by two orders of magnitude.
 
 ![Iterative Denoising](images/diffusion_process.png)

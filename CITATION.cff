@@ -1,0 +1,57 @@
+cff-version: 1.2.0
+message: "If you use this code or dataset in your research, please cite the following paper."
+type: software
+title: "LPBFDiffusionSR: Inexpensive High Fidelity Melt Pool Models via Generative Deep Diffusion"
+repository-code: "https://github.com/fogoke/LPBFDiffusionSR"
+license: MIT
+identifiers:
+  - type: doi
+    value: 10.1016/j.matdes.2024.113181
+    description: Materials & Design journal article
+  - type: other
+    value: "arXiv:2311.16168"
+    description: arXiv preprint
+authors:
+  - family-names: Ogoke
+    given-names: Francis
+  - family-names: Liu
+    given-names: Quanliang
+  - family-names: Ajenifujah
+    given-names: Olabode
+  - family-names: Myers
+    given-names: Alexander
+  - family-names: Quirarte
+    given-names: Guadalupe
+  - family-names: Malen
+    given-names: Jonathan
+  - family-names: Beuth
+    given-names: Jack
+  - family-names: "Barati Farimani"
+    given-names: Amir
+preferred-citation:
+  type: article
+  title: "Inexpensive high fidelity melt pool models in additive manufacturing using generative deep diffusion"
+  journal: "Materials & Design"
+  volume: 245
+  start: 113181
+  year: 2024
+  publisher:
+    name: Elsevier
+  doi: 10.1016/j.matdes.2024.113181
+  authors:
+    - family-names: Ogoke
+      given-names: Francis
+    - family-names: Liu
+      given-names: Quanliang
+    - family-names: Ajenifujah
+      given-names: Olabode
+    - family-names: Myers
+      given-names: Alexander
+    - family-names: Quirarte
+      given-names: Guadalupe
+    - family-names: Malen
+      given-names: Jonathan
+    - family-names: Beuth
+      given-names: Jack
+    - family-names: "Barati Farimani"
+      given-names: Amir
