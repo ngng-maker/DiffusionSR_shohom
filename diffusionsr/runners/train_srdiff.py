@@ -190,7 +190,7 @@ if modeltype == 'diffusion':
 
     wandb.init(
         project="Flow3D_SuperResolution",
-        entity = "fogoke", 
+        entity=os.getenv("WANDB_ENTITY"),
         config=combined_dict,
         # mode = 'disabled' if config['data']['debug'] else 'online'
     )

@@ -23,7 +23,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
 
     wandb.init(
         project="RRDN_Encoder",
-        entity = "fogoke", 
+        entity=os.getenv("WANDB_ENTITY"),
         config=config,
     )
 

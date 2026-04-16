@@ -12,11 +12,18 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--wandb_id', type=str, help='Wandb ID', default = '3921imsz')
+parser.add_argument('--wandb_entity', type=str, default=os.getenv("WANDB_ENTITY"),
+                    help='Wandb entity (defaults to WANDB_ENTITY env var)')
+parser.add_argument('--wandb_project', type=str, default='Flow3D_SuperResolution',
+                    help='Wandb project name')
 args = parser.parse_args()
+
+if args.wandb_entity is None:
+    raise ValueError("Set --wandb_entity or the WANDB_ENTITY env var.")
 
 wandb_id = args.wandb_id
 api  = wandb.Api()
-run = api.run(f'fogoke/Flow3D_SuperResolution/{wandb_id}')
+run = api.run(f'{args.wandb_entity}/{args.wandb_project}/{wandb_id}')
 config = run.config
 
 

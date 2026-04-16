@@ -781,18 +781,6 @@ def plot_srdiff_contours(input, result, target, modeltype, split = 'train', max_
     plt.xlabel(r'x [$\mu m$] ')
     plt.ylabel(r'z [$\mu m$] ')
     plt.show()
-def main():
-    os.environ['CUDA_VISIBLE_DEVICES']  = "0"
-    device = 'cuda'
-    criterion = torch.nn.L1Loss()
-    multi_field_results_dir = ''
-    train_dataset = SimulationXZDataset(downscale_method = 'direct', split = 'train', root_folder = '/media/cmu/DATA/francis/Melt_Pool_Data/superresdata_text/ss316l_all_laser_velocity_xz_cross_section_data', return_info = True)
-    lr_enc = load_encoder('/home/cmu/github/LPBFDiffusionSR/runs/direct/encoder/2023_01_23_03_50_44/standardize/n_steps_1', dataset = train_dataset)
-    model = load_diffusion('/home/cmu/github/LPBFDiffusionSR/runs/direct/diffusionimplicit/2023_01_23_14_00_16/standardize/n_steps_1', dataset = train_dataset)
-
-if __name__ == '__main__':
-    main()
-
 def initialize_diffusion(diff_dir, enc_dir, datasets, timesteps, conditioning, encoding, schedule, device):
     ''' 
     Parameters:

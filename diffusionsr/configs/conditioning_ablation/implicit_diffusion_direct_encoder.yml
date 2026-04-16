@@ -17,6 +17,6 @@ batch_size: 16
 epochs: 300
 learning_rate: 5e-5
 use_pretrained: False
-encoder_results_dir: '/home/cmu/github/LPBFDiffusionSR/runs/direct/encoder/2023_01_23_03_50_44/standardize/n_steps_1'
+encoder_results_dir: './runs/direct/encoder/2023_01_23_03_50_44/standardize/n_steps_1'
   
 
