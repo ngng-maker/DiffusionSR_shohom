@@ -1,0 +1,24 @@
+
+root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
+downscale_method: "direct"
+n_steps: "1" 
+encoding: False
+residual_flag: false
+conditioning: "implicit"
+
+
+normalize_method: "standardize"
+schedule: "linear"
+fields: 'temperature'
+timesteps: 1000
+batch_size: 16
+epochs: 100
+learning_rate: 5e-5
+use_pretrained: False
+#restart_dir: './runs/direct/diffusionimplicitencoded/2026_04_22_22_48_29/standardize/n_steps_1'
+#encoder_results_dir: './runs/direct/encoder/2026_04_22_22_48_29/standardize/n_steps_1'
+  
+
+
+inflate_dim: 8
+inflate_method: 'repeat'

@@ -1,0 +1,48 @@
+# Ti6Al4V original-field true-3D latent diffusion config.
+# Train the LR and HR VAEs first, then replace the two encoder directories below
+# with their runs/direct/vae3d/.../standardize/n_steps_1 folders.
+# Run from diffusionsr/:
+#   python runners/train_latentdiff.py --config ti64_multifield_latentdiff_3d.yml --gpu 0
+
+root_folder: "./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
+downscale_method: "direct"
+n_steps: "1"
+fields: "temperature_liqlabel_meltregion"
+normalize_method: "standardize"
+out_steps: null
+
+inflate_dim: null
+inflate_method: "repeat"
+
+latent_input_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_UPSCALED_LR_VAE_RUN/standardize/n_steps_1"
+latent_input_encoder_checkpoint: "best_model.pth"
+latent_target_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_HR_VAE_RUN/standardize/n_steps_1"
+latent_target_encoder_checkpoint: "best_model.pth"
+
+latent_input_type: "upscaled_lr"
+latent_target_type: "hr"
+latent_sample_posterior: false
+
+latent_training_mode: "diffusion"
+latent_timesteps: 1000
+latent_schedule: "linear"
+latent_sampler: "DDIM"
+latent_sample_timesteps: 100
+latent_ddim_eta: 0.0
+latent_loss_type: "huber"
+latent_hidden_channels: 64
+latent_num_blocks: 4
+
+epochs: 100
+batch_size: 1
+learning_rate: 1.0e-4
+latent_learning_rate: null
+latent_weight_decay: 0.0
+latent_grad_clip_norm: null
+latent_num_workers: 0
+
+latent_log_interval: 50
+latent_sample_interval: 5
+latent_save_every: 0
+wandb_project: "Flow3D_SuperResolution"
+wandb_mode: "online"

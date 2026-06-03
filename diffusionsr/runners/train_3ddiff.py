@@ -8,7 +8,7 @@ import yaml
 from diffusionsr.datasets.dataset import SimulationXZDataset
 from torch.utils.data import DataLoader
 
-from diffusionsr.runners.train_diffusion import DiffusionModel
+from diffusionsr.runners.train_diffusion_3d import DiffusionModel3D
 from diffusionsr.runners.train_mobilenet import train_mobilenet
 from diffusionsr.runners.train_rrdn_encoder import pretrain_encoder
 from diffusionsr.runners.train_vae import VAETrainer, parse_channel_multipliers
@@ -47,7 +47,7 @@ def parse_args_and_config():
     parser.add_argument('--gpu', type = str, default = "7", help = 'Index of GPU to use (if only a single GPU is available, enter "0".' )
     parser.add_argument('--modeltype', type = str, default = 'mobilenet', help = "SR model to run. Options are diffusion, encoder, MobileNet")
     parser.add_argument('--restart_dir', type = str, default = '')
-    parser.add_argument('--additional_epochs', type=int, default=None, help='When restarting supported trainers, train this many extra epochs beyond the checkpoint epoch.')
+    parser.add_argument('--additional_epochs', type=int, default=None, help='When restarting, train for this many extra epochs beyond the checkpoint epoch.')
     args = parser.parse_args()
 
     with open(os.path.join("configs", args.config), "r") as f:
@@ -67,6 +67,8 @@ normalize_method = new_config.normalize_method  # Used in diffusionsr/runners/tr
 conditioning = new_config.conditioning # possible options: explicit, implicit; passed from diffusionsr/runners/train_srdiff.py into diffusionsr/runners/train_diffusion.py::DiffusionModel, where it selects the diffusion conditioning mode and contributes to the run-folder name here.
 downscale_method = new_config.downscale_method  # Used in diffusionsr/runners/train_srdiff.py when building dataset paths and run-folder names, then consumed in diffusionsr/datasets/dataset.py to locate LR data.
 use_pretrained= new_config.use_pretrained  # Used in diffusionsr/runners/train_srdiff.py to decide whether to reuse encoder_results_dir or train a fresh encoder before diffusion training.
+inflate_dim = int(new_config.inflate_dim) if hasattr(new_config, 'inflate_dim') and new_config.inflate_dim is not None else None
+inflate_method = new_config.inflate_method if hasattr(new_config, 'inflate_method') else 'repeat'
 
 
 if hasattr(new_config, 'enc_output'):
@@ -93,11 +95,18 @@ if encoding_flag:
     encoder = 'encoded'
 else:
     encoder = 'upscaled'
+    if use_pretrained:
+        print("Ignoring use_pretrained because encoding is disabled.")
 # breakpoint()
 field_names = config_to_field_names(new_config.fields)
-print(field_names)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 epochs = int(new_config.epochs)
+if args.additional_epochs is not None:
+    additional_epochs = args.additional_epochs
+elif hasattr(new_config, 'additional_epochs') and new_config.additional_epochs is not None:
+    additional_epochs = int(new_config.additional_epochs)
+else:
+    additional_epochs = None
 learning_rate = float(new_config.learning_rate)
 if not hasattr(new_config, 'loss_type'):
     loss_type = 'huber'
@@ -111,8 +120,26 @@ if hasattr(new_config, 'transform_rescale'):
     transform_rescale = new_config.transform_rescale
 else:
     transform_rescale  = False
-inflate_dim = getattr(new_config, 'inflate_dim', None)
-inflate_method = getattr(new_config, 'inflate_method', 'repeat')
+voxel_save_interval = int(new_config.voxel_save_interval) if hasattr(new_config, 'voxel_save_interval') and new_config.voxel_save_interval is not None else 0
+voxel_sample_batch_idx = int(new_config.voxel_sample_batch_idx) if hasattr(new_config, 'voxel_sample_batch_idx') and new_config.voxel_sample_batch_idx is not None else 0
+voxel_threshold = float(new_config.voxel_threshold) if hasattr(new_config, 'voxel_threshold') and new_config.voxel_threshold is not None else 1800.0
+voxel_channel = int(new_config.voxel_channel) if hasattr(new_config, 'voxel_channel') and new_config.voxel_channel is not None else 0
+voxel_sampler = new_config.voxel_sampler if hasattr(new_config, 'voxel_sampler') and new_config.voxel_sampler is not None else 'DDIM'
+voxel_skip = int(new_config.voxel_skip) if hasattr(new_config, 'voxel_skip') and new_config.voxel_skip is not None else 10
+print(field_names)
+print(
+    {
+        'config': args.config,
+        'modeltype': modeltype,
+        'encoding': encoding_flag,
+        'use_pretrained': use_pretrained,
+        'additional_epochs': additional_epochs,
+        'inflate_dim': inflate_dim,
+        'inflate_method': inflate_method,
+        'voxel_save_interval': voxel_save_interval,
+        'voxel_sample_batch_idx': voxel_sample_batch_idx,
+    }
+)
 # Define dataset
 train_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                      normalize=normalize_method,
@@ -173,24 +200,23 @@ if modeltype == 'mobilenet':
                     batch_size=batch_size,
                     learning_rate =learning_rate)
 
-if modeltype in ['vae', 'vae2d', 'vae3d']:
-    vae_spatial_dims = int(getattr(new_config, 'vae_spatial_dims', 3 if modeltype == 'vae3d' else 2))
+if modeltype in ['vae', 'vae3d']:
     if restart:
         vae_results_dir = restart_dir
     else:
-        vae_results_dir = os.path.join('runs', downscale_method, f'vae{vae_spatial_dims}d', datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
+        vae_results_dir = os.path.join('runs', downscale_method, 'vae3d', datetime_string, normalize_method, 'n_steps_{}'.format(n_steps))
     os.makedirs(vae_results_dir, exist_ok=True)
     shutil.copy(os.path.join("configs", args.config), os.path.join(vae_results_dir, 'configuration.yml'))
     vae_target = getattr(new_config, 'vae_target', 'hr')
     vae_input_type = getattr(new_config, 'vae_input_type', getattr(new_config, 'vae_input', vae_target))
     with open(os.path.join(vae_results_dir, 'information.txt'), 'w') as f:
         f.write(
-            f'vae_spatial_dims: {vae_spatial_dims}\nfields: {field_names}\ncreated_at: {datetime_string}\n'
-            f'inflate_dim: {getattr(train_dataset, "inflate_dim", None)}\ninflate_method: {inflate_method}\n'
+            f'vae_spatial_dims: 3\nfields: {field_names}\ncreated_at: {datetime_string}\n'
+            f'inflate_dim: {inflate_dim}\ninflate_method: {inflate_method}\n'
             f'input: {vae_input_type}\ntarget: {vae_target}'
         )
 
-    print(f'Training {vae_spatial_dims}D VAE...')
+    print('Training 3D VAE...')
     wandb.init(
         project="Flow3D_SuperResolution",
         entity=os.getenv("WANDB_ENTITY"),
@@ -205,13 +231,13 @@ if modeltype in ['vae', 'vae2d', 'vae3d']:
         train_dataset=train_dataset,
         dev_dataset=dev_dataset,
         test_dataset=test_dataset,
-        spatial_dims=vae_spatial_dims,
+        spatial_dims=3,
         target_type=vae_target,
         input_type=vae_input_type,
         input_channels=getattr(new_config, 'vae_input_channels', None),
         output_channels=getattr(new_config, 'vae_output_channels', None),
         latent_channels=int(getattr(new_config, 'vae_latent_channels', 4)),
-        hidden_channels=int(getattr(new_config, 'vae_hidden_channels', 16 if vae_spatial_dims == 3 else 32)),
+        hidden_channels=int(getattr(new_config, 'vae_hidden_channels', 16)),
         channel_multipliers=parse_channel_multipliers(getattr(new_config, 'vae_channel_multipliers', (1, 2, 4))),
         output_activation=output_activation,
         beta=float(getattr(new_config, 'vae_beta', 1e-4)),
@@ -228,7 +254,7 @@ if modeltype in ['vae', 'vae2d', 'vae3d']:
         epochs=epochs,
         restart=restart,
         restart_dir=restart_dir,
-        additional_epochs=args.additional_epochs,
+        additional_epochs=additional_epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
         weight_decay=float(getattr(new_config, 'vae_weight_decay', 0.0)),
@@ -252,6 +278,7 @@ if modeltype == 'diffusion':
                             config = combined_dict)
     else:
         encoder_results_dir = 'no_encoder_used'
+        print('Encoder path disabled because encoding is False.')
     if restart: # Resume training
         diffusion_results_dir = restart_dir
     else:
@@ -274,24 +301,30 @@ if modeltype == 'diffusion':
         # mode = 'disabled' if config['data']['debug'] else 'online'
     )
 
-    diffusion_model = DiffusionModel(results_folder=diffusion_results_dir,
-                                     lr_encoder_folder=encoder_results_dir,
-                                     train_dataset=train_dataset,
-                                     dev_dataset=dev_dataset,
-                                     test_dataset=test_dataset,
-                                     timesteps=timesteps,
-                                     conditioning=conditioning,
-                                     encoding=encoding_flag,
-                                     schedule=schedule,
-                                     device=f'cuda:0',#{args.gpu.split(",")[0]}',
-                                     enc_output = enc_output, 
-                                     out_steps = out_steps, transform_rescale=transform_rescale
-                                     )
+    diffusion_model = DiffusionModel3D(results_folder=diffusion_results_dir,
+                                       lr_encoder_folder=encoder_results_dir,
+                                       train_dataset=train_dataset,
+                                       dev_dataset=dev_dataset,
+                                       test_dataset=test_dataset,
+                                       timesteps=timesteps,
+                                       conditioning=conditioning,
+                                       encoding=encoding_flag,
+                                       schedule=schedule,
+                                       device=f'cuda:0',#{args.gpu.split(",")[0]}',
+                                       enc_output = enc_output,
+                                       out_steps = out_steps, transform_rescale=transform_rescale
+                                       )
     diffusion_model.train(epochs=epochs,
                           restart=restart,
                           restart_dir=restart_dir,
-
+                          additional_epochs=additional_epochs,
                           batch_size=batch_size,
                           learning_rate=learning_rate,
-                          loss_type=loss_type
+                          loss_type=loss_type,
+                          voxel_save_interval=voxel_save_interval,
+                          voxel_sample_batch_idx=voxel_sample_batch_idx,
+                          voxel_threshold=voxel_threshold,
+                          voxel_channel=voxel_channel,
+                          voxel_sampler=voxel_sampler,
+                          voxel_skip=voxel_skip,
                           )

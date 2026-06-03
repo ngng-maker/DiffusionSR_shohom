@@ -207,3 +207,7 @@ wandb
 runners/__pycache__/train_diffusion.cpython-38.pyc
 runners/__pycache__/train_rrdn_encoder.cpython-38.pyc
 *npy
+
+
+diffusionsr/data/
+diffusionsr/notebooks/analyzed_figures/

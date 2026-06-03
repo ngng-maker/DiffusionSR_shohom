@@ -1,0 +1,142 @@
+# Config template for VAE training.
+# Launch 2D VAE from the diffusionsr/ directory:
+#   python runners/train_srdiff.py --config ti64_updated_vae_run.yml --gpu 0 --modeltype vae2d
+# Launch 3D/fake-depth VAE from the diffusionsr/ directory:
+#   python runners/train_3ddiff.py --config ti64_updated_vae_run.yml --gpu 0 --modeltype vae3d
+
+# -----------------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------------
+# Root containing train/dev/test folders with HR and LR subdirectories.
+root_folder: "./data/box_data/Ti6Al4V/splits/ti6al4v_processed_2d_seed20260518"
+
+# LR generation/downscale folder name under split/LR/<downscale_method>/.
+downscale_method: "direct"
+
+# Number of temporal frames stacked as channels.
+n_steps: "1"
+
+# Field selection. Supported by train_srdiff/train_3ddiff:
+#   temperature             -> [temperature]
+#   temperature_liqlabel    -> [temperature, liqlabel]
+#   all                     -> dataset default fields
+#   all_but_pressure        -> [vx, temperature, vy, vz, liqlabel]
+fields: "temperature"
+
+# Data normalization used by SimulationXZDataset.
+#   standardize -> mean/std normalization from dataset statistics
+#   rescaling   -> field-wise min/max to [-1, 1]
+normalize_method: "standardize"
+
+# Optional output timestep override. Leave null to reconstruct n_steps outputs.
+out_steps: null
+
+# -----------------------------------------------------------------------------
+# Runner compatibility fields
+# -----------------------------------------------------------------------------
+# These are still read by the shared runner even when --modeltype vae2d/vae3d.
+encoding: false
+residual_flag: false
+conditioning: "implicit"
+schedule: "linear"
+timesteps: 1000
+use_pretrained: false
+encoder_results_dir: null
+enc_output: false
+transform_rescale: false
+loss_type: "huber"
+
+# -----------------------------------------------------------------------------
+# Core training
+# -----------------------------------------------------------------------------
+epochs: 100
+batch_size: 200
+learning_rate: 5e-3
+
+# -----------------------------------------------------------------------------
+# VAE data mapping
+# -----------------------------------------------------------------------------
+# Autoencoder source and target. For latent diffusion over HR fields, use hr -> hr.
+# For an LR latent autoencoder, use lr -> lr.
+# Other accepted values: residual, hr, high_resolution, lr, true_lr, upscaled_lr.
+vae_input_type: "hr"
+vae_target: "hr"
+
+# 2 for train_srdiff.py --modeltype vae2d, 3 for train_3ddiff.py --modeltype vae3d.
+vae_spatial_dims: 2
+
+# Optional manual channel overrides. Leave null to infer from dataset/target shape.
+vae_input_channels: null
+vae_output_channels: null
+
+# -----------------------------------------------------------------------------
+# VAE architecture
+# -----------------------------------------------------------------------------
+# Latent channel count. This is the channel dimension downstream latent diffusion
+# should consume after VAE encoding.
+vae_latent_channels: 8
+
+# Base hidden width before applying channel multipliers.
+vae_hidden_channels: 64
+
+# Encoder/decoder depth and width scaling. [1] is a very light smoke-test model;
+# [1, 2, 4] is a stronger default for real training.
+vae_channel_multipliers: [1, 2, 4]
+
+# Output nonlinearity. Use null for standardized data. For rescaled [-1, 1] data,
+# tanh can be reasonable; sigmoid is only appropriate for [0, 1] targets.
+vae_output_activation: Null
+
+# -----------------------------------------------------------------------------
+# VAE objective and optimization
+# -----------------------------------------------------------------------------
+# Total loss = reconstruction_loss + vae_beta * KL.
+vae_beta: 1.0e-6  # A small KL weight like 1e-6 can help prevent posterior collapse in early experiments.
+
+# Reconstruction loss: l1, l2, or huber.
+vae_reconstruction_loss: "l1"
+
+# Gradually ramp KL weight over this many epochs. 0 disables annealing.
+vae_kl_anneal_epochs: 0
+
+# Adam weight decay.
+vae_weight_decay: 0.0
+
+# Optional gradient clipping. Set null to disable.
+vae_grad_clip_norm: null
+
+# DataLoader workers used by the VAE trainer.
+vae_num_workers: 0
+
+# -----------------------------------------------------------------------------
+# VAE logging, checkpoints, and previews
+# -----------------------------------------------------------------------------
+# Batch-level scalar logging cadence in optimizer steps. Set 0 to disable.
+vae_log_interval: 5
+# Save reconstruction preview every N epochs. Set 0 to disable image previews.
+vae_sample_interval: 5
+
+# Save extra epoch-numbered checkpoints every N epochs. Latest ckpt.pth and
+# best_model.pth are always maintained. Set 0 to disable extra checkpoints.
+vae_save_every: 0
+
+# -----------------------------------------------------------------------------
+# 3D / fake-depth compatibility
+# -----------------------------------------------------------------------------
+# Current fake 3D configs repeat 2D fields into channel-depth. Real 3D data should
+# eventually emit tensors shaped (batch, channels, depth, height, width) directly.
+# For vae2d these are ignored by train_srdiff.py.
+inflate_dim: 4
+inflate_method: "repeat"
+
+# -----------------------------------------------------------------------------
+# 3D diffusion voxel diagnostics
+# -----------------------------------------------------------------------------
+# These are used by train_3ddiff.py diffusion runs. They are not used by VAE
+# training, but keeping them here makes this config compatible with that runner.
+voxel_save_interval: 50
+voxel_sample_batch_idx: 100
+voxel_threshold: 1800.0
+voxel_channel: 0
+voxel_sampler: "DDIM"
+voxel_skip: 10

@@ -16,3 +16,4 @@ scikit-image
 torchsummary
 tqdm
 gdown
+pytest
