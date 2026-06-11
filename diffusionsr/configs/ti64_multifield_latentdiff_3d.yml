@@ -14,9 +14,11 @@ out_steps: null
 inflate_dim: null
 inflate_method: "repeat"
 
-latent_input_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_UPSCALED_LR_VAE_RUN/standardize/n_steps_1"
+#latent_input_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_UPSCALED_LR_VAE_RUN/standardize/n_steps_1"
+latent_input_encoder_dir: "./runs/direct/vae3d/2026_06_03_08_34_00/standardize/n_steps_1"
 latent_input_encoder_checkpoint: "best_model.pth"
-latent_target_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_HR_VAE_RUN/standardize/n_steps_1"
+#latent_target_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_HR_VAE_RUN/standardize/n_steps_1"
+latent_target_encoder_dir: "./runs/direct/vae3d/2026_06_03_08_33_50/standardize/n_steps_1"
 latent_target_encoder_checkpoint: "best_model.pth"
 
 latent_input_type: "upscaled_lr"
@@ -33,8 +35,8 @@ latent_loss_type: "huber"
 latent_hidden_channels: 64
 latent_num_blocks: 4
 
-epochs: 100
-batch_size: 1
+epochs: 300
+batch_size: 16
 learning_rate: 1.0e-4
 latent_learning_rate: null
 latent_weight_decay: 0.0
