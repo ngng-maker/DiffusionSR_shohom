@@ -4,7 +4,8 @@
 # Run from diffusionsr/:
 #   python runners/train_latentdiff.py --config ti64_multifield_latentdiff_3d.yml --gpu 0
 
-root_folder: "./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
+root_folder: "./data/ti6al4v_processed_3d_fields_seed20260518"
+#"./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
 downscale_method: "direct"
 n_steps: "1"
 fields: "temperature_liqlabel_meltregion"
@@ -14,11 +15,19 @@ out_steps: null
 inflate_dim: null
 inflate_method: "repeat"
 
+<<<<<<< HEAD
 #latent_input_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_UPSCALED_LR_VAE_RUN/standardize/n_steps_1"
 latent_input_encoder_dir: "./runs/direct/vae3d/2026_06_03_08_34_00/standardize/n_steps_1"
 latent_input_encoder_checkpoint: "best_model.pth"
 #latent_target_encoder_dir: "./runs/direct/vae3d/REPLACE_WITH_HR_VAE_RUN/standardize/n_steps_1"
 latent_target_encoder_dir: "./runs/direct/vae3d/2026_06_03_08_33_50/standardize/n_steps_1"
+=======
+latent_input_encoder_dir: "./runs/direct/vae3d/2026_06_08_17_47_57/standardize/n_steps_1"
+# "./runs/direct/vae3d/REPLACE_WITH_UPSCALED_LR_VAE_RUN/standardize/n_steps_1"
+latent_input_encoder_checkpoint: "best_model.pth"
+latent_target_encoder_dir: "./runs/direct/vae3d/2026_06_07_20_24_59/standardize/n_steps_1"
+# "./runs/direct/vae3d/REPLACE_WITH_HR_VAE_RUN/standardize/n_steps_1"
+>>>>>>> efe79d4 (not a curse, but the 3d multifield is still very broken)
 latent_target_encoder_checkpoint: "best_model.pth"
 
 latent_input_type: "upscaled_lr"

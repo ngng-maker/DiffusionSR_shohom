@@ -2,7 +2,8 @@
 # Run from diffusionsr/:
 #   python runners/train_3ddiff.py --config ti64_multifield_vae_3d_lr.yml --gpu 0 --modeltype vae3d
 
-root_folder: "./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
+root_folder: "./data/ti6al4v_processed_3d_fields_seed20260518"
+#"./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
 downscale_method: "direct"
 n_steps: "1"
 fields: "temperature_liqlabel_meltregion"
@@ -21,7 +22,7 @@ transform_rescale: false
 loss_type: "huber"
 
 epochs: 100
-batch_size: 3
+batch_size: 42
 learning_rate: 5.0e-4
 
 vae_input_type: "upscaled_lr"
@@ -30,7 +31,7 @@ vae_spatial_dims: 3
 vae_input_channels: null
 vae_output_channels: null
 vae_latent_channels: 8
-vae_hidden_channels: 32
+vae_hidden_channels: 64
 vae_channel_multipliers: [1, 2, 4]
 vae_output_activation: null
 vae_beta: 1.0e-6

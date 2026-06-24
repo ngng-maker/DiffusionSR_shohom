@@ -9,12 +9,21 @@ from typing import Dict, Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import wandb
 
-from diffusionsr.models.vae_model import VAE2D, VAE3D, vae_loss
+from diffusionsr.models.vae_model import (
+    PatchDiscriminator,
+    VAE2D,
+    VAE3D,
+    VGGFeatureLoss,
+    discriminator_gan_loss,
+    generator_gan_loss,
+    vae_loss,
+)
 
 
 _TARGET_INDEX = {
@@ -60,6 +69,20 @@ def _wandb_log(payload: dict, step: Optional[int] = None) -> None:
         wandb.log(payload, step=step)
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _none_if_blank(value):
+    if value in (None, "", "none", "None"):
+        return None
+    return value
+
+
 class VAETrainer:
     def __init__(
         self,
@@ -79,6 +102,22 @@ class VAETrainer:
         beta: float = 1e-4,
         reconstruction_loss: str = "l1",
         kl_anneal_epochs: int = 0,
+        feature_loss_weight: float = 0.0,
+        feature_loss_model: str = "vgg19",
+        feature_loss_layer: str = "features.35",
+        feature_loss_pretrained: bool = True,
+        feature_loss_resize: Optional[int] = 224,
+        feature_loss_type: str = "l1",
+        feature_loss_input_normalization: str = "minmax",
+        feature_loss_slice_mode: str = "center",
+        gan_loss_weight: float = 0.0,
+        discriminator_hidden_channels: int = 32,
+        discriminator_layers: int = 3,
+        discriminator_learning_rate: Optional[float] = None,
+        discriminator_weight_decay: float = 0.0,
+        codebook_loss_weight: float = 0.0,
+        codebook_size: int = 0,
+        codebook_beta: float = 0.25,
         num_workers: int = 0,
         log_interval: int = 50,
         sample_interval: int = 1,
@@ -107,6 +146,26 @@ class VAETrainer:
         self.beta = float(beta)
         self.reconstruction_loss = reconstruction_loss
         self.kl_anneal_epochs = int(kl_anneal_epochs or 0)
+        self.feature_loss_weight = float(feature_loss_weight or 0.0)
+        self.feature_loss_model = feature_loss_model
+        self.feature_loss_layer = feature_loss_layer
+        self.feature_loss_pretrained = _as_bool(feature_loss_pretrained)
+        feature_loss_resize = _none_if_blank(feature_loss_resize)
+        self.feature_loss_resize = int(feature_loss_resize) if feature_loss_resize is not None else None
+        self.feature_loss_type = feature_loss_type
+        self.feature_loss_input_normalization = feature_loss_input_normalization
+        self.feature_loss_slice_mode = feature_loss_slice_mode
+        self.gan_loss_weight = float(gan_loss_weight or 0.0)
+        self.discriminator_hidden_channels = int(discriminator_hidden_channels)
+        self.discriminator_layers = int(discriminator_layers)
+        discriminator_learning_rate = _none_if_blank(discriminator_learning_rate)
+        self.discriminator_learning_rate = (
+            float(discriminator_learning_rate) if discriminator_learning_rate is not None else None
+        )
+        self.discriminator_weight_decay = float(discriminator_weight_decay or 0.0)
+        self.codebook_loss_weight = float(codebook_loss_weight or 0.0)
+        self.codebook_size = int(codebook_size or 0)
+        self.codebook_beta = float(codebook_beta)
         self.num_workers = int(num_workers)
         self.log_interval = int(log_interval)
         self.sample_interval = int(sample_interval)
@@ -123,14 +182,44 @@ class VAETrainer:
         self.channel_multipliers = parse_channel_multipliers(channel_multipliers)
 
         model_cls = VAE2D if self.spatial_dims == 2 else VAE3D
+        self.latent_channels = int(latent_channels)
         self.model = model_cls(
             input_channels=self.input_channels,
             output_channels=self.output_channels,
-            latent_channels=int(latent_channels),
+            latent_channels=self.latent_channels,
             hidden_channels=int(hidden_channels),
             channel_multipliers=self.channel_multipliers,
             output_activation=output_activation,
         ).to(self.device)
+
+        self.feature_loss = None
+        if self.feature_loss_weight != 0.0:
+            self.feature_loss = VGGFeatureLoss(
+                model_name=self.feature_loss_model,
+                feature_node=self.feature_loss_layer,
+                pretrained=self.feature_loss_pretrained,
+                resize=self.feature_loss_resize,
+                loss_type=self.feature_loss_type,
+                input_normalization=self.feature_loss_input_normalization,
+                slice_mode=self.feature_loss_slice_mode,
+            ).to(self.device)
+
+        self.codebook = None
+        if self.codebook_loss_weight != 0.0:
+            if self.codebook_size <= 0:
+                raise ValueError("codebook_size must be positive when codebook_loss_weight is non-zero")
+            self.codebook = nn.Embedding(self.codebook_size, self.latent_channels).to(self.device)
+            nn.init.uniform_(self.codebook.weight, -1.0 / self.codebook_size, 1.0 / self.codebook_size)
+
+        self.discriminator = None
+        self.discriminator_optimizer = None
+        if self.gan_loss_weight != 0.0:
+            self.discriminator = PatchDiscriminator(
+                spatial_dims=self.spatial_dims,
+                input_channels=self.output_channels,
+                hidden_channels=self.discriminator_hidden_channels,
+                num_layers=self.discriminator_layers,
+            ).to(self.device)
 
         self.model_config = self.model.config()
         self.trainer_config = {
@@ -141,6 +230,22 @@ class VAETrainer:
             "beta": self.beta,
             "reconstruction_loss": self.reconstruction_loss,
             "kl_anneal_epochs": self.kl_anneal_epochs,
+            "feature_loss_weight": self.feature_loss_weight,
+            "feature_loss_model": self.feature_loss_model,
+            "feature_loss_layer": self.feature_loss_layer,
+            "feature_loss_pretrained": self.feature_loss_pretrained,
+            "feature_loss_resize": self.feature_loss_resize,
+            "feature_loss_type": self.feature_loss_type,
+            "feature_loss_input_normalization": self.feature_loss_input_normalization,
+            "feature_loss_slice_mode": self.feature_loss_slice_mode,
+            "gan_loss_weight": self.gan_loss_weight,
+            "discriminator_hidden_channels": self.discriminator_hidden_channels,
+            "discriminator_layers": self.discriminator_layers,
+            "discriminator_learning_rate": self.discriminator_learning_rate,
+            "discriminator_weight_decay": self.discriminator_weight_decay,
+            "codebook_loss_weight": self.codebook_loss_weight,
+            "codebook_size": self.codebook_size,
+            "codebook_beta": self.codebook_beta,
             "num_workers": self.num_workers,
             "log_interval": self.log_interval,
             "sample_interval": self.sample_interval,
@@ -227,9 +332,72 @@ class VAETrainer:
             pin_memory=self.device.type == "cuda",
         )
 
+    def _generator_parameters(self):
+        parameters = list(self.model.parameters())
+        if self.codebook is not None:
+            parameters.extend(self.codebook.parameters())
+        return parameters
+
+    def _set_discriminator_requires_grad(self, requires_grad: bool) -> None:
+        if self.discriminator is None:
+            return
+        for parameter in self.discriminator.parameters():
+            parameter.requires_grad = requires_grad
+
+    def _generator_losses(self, output, target: torch.Tensor, epoch: int) -> Dict[str, torch.Tensor]:
+        feature_value = None
+        if self.feature_loss is not None:
+            feature_value = self.feature_loss(output.reconstruction, target)
+
+        adversarial_value = None
+        if self.discriminator is not None:
+            self._set_discriminator_requires_grad(False)
+            adversarial_value = generator_gan_loss(self.discriminator(output.reconstruction))
+            self._set_discriminator_requires_grad(True)
+
+        return vae_loss(
+            output,
+            target,
+            beta=self._kl_weight(epoch),
+            loss_type=self.reconstruction_loss,
+            feature_loss=feature_value,
+            feature_weight=self.feature_loss_weight,
+            adversarial_loss=adversarial_value,
+            adversarial_weight=self.gan_loss_weight,
+            codebook=self.codebook,
+            codebook_weight=self.codebook_loss_weight,
+            codebook_beta=self.codebook_beta,
+        )
+
+    def _discriminator_losses(self, target: torch.Tensor, reconstruction: torch.Tensor, train: bool) -> Dict[str, torch.Tensor]:
+        if self.discriminator is None:
+            return {}
+        if train:
+            self.discriminator_optimizer.zero_grad(set_to_none=True)
+
+        with torch.set_grad_enabled(train):
+            real_logits = self.discriminator(target.detach())
+            fake_logits = self.discriminator(reconstruction.detach())
+            loss = discriminator_gan_loss(real_logits, fake_logits)
+
+        if train:
+            loss.backward()
+            self.discriminator_optimizer.step()
+
+        return {
+            "discriminator_loss": loss,
+            "discriminator_real_logits": real_logits.detach().mean(),
+            "discriminator_fake_logits": fake_logits.detach().mean(),
+        }
+
     def _run_epoch(self, loader: DataLoader, epoch: int, train: bool) -> Dict[str, float]:
         self.model.train(train)
-        totals = {"loss": 0.0, "reconstruction_loss": 0.0, "kl_loss": 0.0}
+        if self.feature_loss is not None:
+            self.feature_loss.eval()
+        if self.discriminator is not None:
+            self.discriminator.train(train)
+
+        totals: Dict[str, float] = {}
         sample_count = 0
         split = "train" if train else "validation"
         iterator = tqdm(loader, desc=f"{split} epoch {epoch + 1}", leave=False)
@@ -245,28 +413,30 @@ class VAETrainer:
                     model_input,
                     output_shape=target.shape[-self.spatial_dims:],
                 )
-                losses = vae_loss(
-                    output,
-                    target,
-                    beta=self._kl_weight(epoch),
-                    loss_type=self.reconstruction_loss,
-                )
+                losses = self._generator_losses(output, target, epoch)
 
             if train:
                 losses["loss"].backward()
                 if self.grad_clip_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), float(self.grad_clip_norm))
+                    torch.nn.utils.clip_grad_norm_(self._generator_parameters(), float(self.grad_clip_norm))
                 self.optimizer.step()
                 self.global_step += 1
 
-            for name in totals:
-                totals[name] += losses[name].detach().item() * batch_size
+            discriminator_losses = self._discriminator_losses(target, output.reconstruction, train=train)
+            batch_metrics = {**losses, **discriminator_losses}
+            for name, value in batch_metrics.items():
+                if torch.is_tensor(value) and value.ndim == 0:
+                    totals[name] = totals.get(name, 0.0) + value.detach().item() * batch_size
             sample_count += batch_size
             iterator.set_postfix(loss=losses["loss"].detach().item())
 
             if train and self.log_interval > 0 and self.global_step % self.log_interval == 0:
                 _wandb_log(
-                    {f"{split}/{name}": losses[name].detach().item() for name in totals},
+                    {
+                        f"{split}/{name}": value.detach().item()
+                        for name, value in batch_metrics.items()
+                        if torch.is_tensor(value) and value.ndim == 0
+                    },
                     step=self.global_step,
                 )
 
@@ -286,7 +456,7 @@ class VAETrainer:
             writer.writerow(row)
 
     def _checkpoint_payload(self, epoch: int, metrics: dict) -> dict:
-        return {
+        payload = {
             "epoch": epoch,
             "global_step": self.global_step,
             "model_state_dict": self.model.state_dict(),
@@ -297,6 +467,13 @@ class VAETrainer:
             "trainer_config": self.trainer_config,
             "saved_at": now_iso(),
         }
+        if self.codebook is not None:
+            payload["codebook_state_dict"] = self.codebook.state_dict()
+        if self.discriminator is not None:
+            payload["discriminator_state_dict"] = self.discriminator.state_dict()
+        if self.discriminator_optimizer is not None:
+            payload["discriminator_optimizer_state_dict"] = self.discriminator_optimizer.state_dict()
+        return payload
 
     def _save_checkpoint(self, epoch: int, metrics: dict, is_best: bool) -> None:
         payload = self._checkpoint_payload(epoch, metrics)
@@ -321,7 +498,19 @@ class VAETrainer:
 
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if self.codebook is not None and "codebook_state_dict" in checkpoint:
+            self.codebook.load_state_dict(checkpoint["codebook_state_dict"])
+        if self.discriminator is not None and "discriminator_state_dict" in checkpoint:
+            self.discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+        try:
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        except ValueError as exc:
+            print(f"Could not load VAE optimizer state from {checkpoint_path}: {exc}")
+        if self.discriminator_optimizer is not None and "discriminator_optimizer_state_dict" in checkpoint:
+            try:
+                self.discriminator_optimizer.load_state_dict(checkpoint["discriminator_optimizer_state_dict"])
+            except ValueError as exc:
+                print(f"Could not load discriminator optimizer state from {checkpoint_path}: {exc}")
         self.best_validation_loss = float(checkpoint.get("best_validation_loss", math.inf))
         self.global_step = int(checkpoint.get("global_step", 0))
         self.start_epoch = int(checkpoint["epoch"]) + 1
@@ -394,7 +583,14 @@ class VAETrainer:
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
     ) -> dict:
-        self.optimizer = Adam(self.model.parameters(), lr=float(learning_rate), weight_decay=float(weight_decay))
+        self.optimizer = Adam(self._generator_parameters(), lr=float(learning_rate), weight_decay=float(weight_decay))
+        if self.discriminator is not None:
+            discriminator_lr = self.discriminator_learning_rate or float(learning_rate)
+            self.discriminator_optimizer = Adam(
+                self.discriminator.parameters(),
+                lr=float(discriminator_lr),
+                weight_decay=self.discriminator_weight_decay,
+            )
         if restart:
             self._load_checkpoint(restart_dir)
 

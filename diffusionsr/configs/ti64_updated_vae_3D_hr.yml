@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 # Root containing train/dev/test folders with HR and LR subdirectories.
 #root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
-root_folder: "./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_seed20260518"
+root_folder: "./data/ti6al4v_processed_3d_fields_seed20260518"
 
 # LR generation/downscale folder name under split/LR/<downscale_method>/.
 downscale_method: "direct"
@@ -50,8 +50,8 @@ loss_type: "huber"
 # -----------------------------------------------------------------------------
 # Core training
 # -----------------------------------------------------------------------------
-epochs: 30
-batch_size: 1
+epochs: 150
+batch_size: 20
 learning_rate: 5e-3
 
 # -----------------------------------------------------------------------------
