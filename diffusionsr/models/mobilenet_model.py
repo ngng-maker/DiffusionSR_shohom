@@ -34,6 +34,25 @@ import matplotlib.pyplot as plt
 device = torch.device("cuda")
 
 
+def _sync_cuda():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
+def _append_timing_log(log_path, stage, epoch, metrics):
+    if not log_path:
+        return
+
+    with open(log_path, 'a') as log_file:
+        log_file.write(f'[{stage}] epoch={epoch}\n')
+        for key, value in metrics.items():
+            if isinstance(value, float):
+                log_file.write(f'{key}: {value:.6f}\n')
+            else:
+                log_file.write(f'{key}: {value}\n')
+        log_file.write('\n')
+
+
 class ConvBNReLU(nn.Sequential):
     def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1):
         padding = (kernel_size - 1) // 2
@@ -195,7 +214,7 @@ def SSIM(op, t, batch_size):
         #print("SSIM: {}".format(score))
     return ssim
 
-def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir = ''):
+def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir = '', timing_log_path = ''):
     dataset = data_loader.dataset
     model.train()
     factor = data_loader.dataset.factor
@@ -203,34 +222,70 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
     avg_psnr = 0
     avg_psnr_les = 0
     psnr = None
-    start_time = time.time()
+    start_time = time.perf_counter()
+    data_wait_time = 0.0
+    to_device_time = 0.0
+    forward_time = 0.0
+    metrics_time = 0.0
+    backward_time = 0.0
+    optimizer_time = 0.0
+    plotting_time = 0.0
+    iter_end_time = start_time
     print('Train Loop')
     temp_idx = data_loader.dataset.field_names.index('temperature')
     for batch_num, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(data_loader), total=len(data_loader), ascii=True):
+        batch_start_time = time.perf_counter()
+        data_wait_time += batch_start_time - iter_end_time
+
         if len(upscaled_lr.shape)< 4:
             img = upscaled_lr.view(upscaled_lr.shape[0], 1, upscaled_lr.shape[1], upscaled_lr.shape[2])
             target = hr.view(hr.shape[0], 1, hr.shape[1], hr.shape[2])
         else:
             img = upscaled_lr
             target = hr
+
+        _sync_cuda()
+        step_start = time.perf_counter()
         img = img.to(device)
         target = target.to(device)
+        _sync_cuda()
+        to_device_time += time.perf_counter() - step_start
         
+        _sync_cuda()
+        step_start = time.perf_counter()
         output = model(img)
+        _sync_cuda()
+        forward_time += time.perf_counter() - step_start
+
         new_out = output#*(8000-293) + 293
+
+        _sync_cuda()
+        step_start = time.perf_counter()
         loss = criterion(output.float(), target.float())
-#         breakpoint()
         psnr = PSNR(output, target, img.shape[0])
         psnr_les = PSNR(img, target, img.shape[0])
+        _sync_cuda()
+        metrics_time += time.perf_counter() - step_start
         
+        _sync_cuda()
+        step_start = time.perf_counter()
         optimizer.zero_grad()
         loss.backward()
+        _sync_cuda()
+        backward_time += time.perf_counter() - step_start
+
+        _sync_cuda()
+        step_start = time.perf_counter()
         optimizer.step()
+        _sync_cuda()
+        optimizer_time += time.perf_counter() - step_start
+
         running_loss += loss.item()/len(data_loader)
         avg_psnr += psnr.item()/len(data_loader)
         avg_psnr_les += psnr_les.item()/len(data_loader)
         
         if batch_num % 500 == 0:
+            plot_start = time.perf_counter()
             plot_directory = image_dir + '/epoch_{}/good_train_examples/'.format(epoch)
             os.makedirs(plot_directory,exist_ok=True)
 
@@ -268,6 +323,8 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
             # print('saved')
             # print(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num))
             plt.clf()
+            plotting_time += time.perf_counter() - plot_start
+        iter_end_time = time.perf_counter()
             
             
     if not psnr:
@@ -275,7 +332,25 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
     #print(' ')
     print('Train_Loss:{:.6f}, PSNR_DNS:{:.4f}, PSNR_LES:{:.4f}'.format(running_loss, psnr, psnr_les))
     torch.cuda.empty_cache()
-    end_time = time.time()
+    end_time = time.perf_counter()
+    num_batches = len(data_loader)
+    _append_timing_log(
+        timing_log_path,
+        'train',
+        epoch,
+        {
+            'num_batches': num_batches,
+            'epoch_seconds': end_time - start_time,
+            'avg_data_wait_seconds': data_wait_time / num_batches,
+            'avg_to_device_seconds': to_device_time / num_batches,
+            'avg_forward_seconds': forward_time / num_batches,
+            'avg_loss_metric_seconds': metrics_time / num_batches,
+            'avg_backward_seconds': backward_time / num_batches,
+            'avg_optimizer_seconds': optimizer_time / num_batches,
+            'avg_plotting_seconds': plotting_time / max(1, (num_batches + 499) // 500),
+            'total_plotting_seconds': plotting_time,
+        },
+    )
     del img
     del target
     del loss
@@ -284,7 +359,7 @@ def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir =
     return running_loss
 
 
-def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
+def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = '', timing_log_path = ''):
     with torch.no_grad():
         model.eval()
 
@@ -294,7 +369,13 @@ def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
         avg_ssim_dns = 0
         avg_ssim_les = 0
 
-        start_time = time.time()
+        start_time = time.perf_counter()
+        data_wait_time = 0.0
+        to_device_time = 0.0
+        forward_time = 0.0
+        metrics_time = 0.0
+        plotting_time = 0.0
+        iter_end_time = start_time
         print('Dev Loop')
         print(' ')
         dataset = data_loader.dataset
@@ -303,21 +384,38 @@ def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
         factor = dataset.factor
         loss = None
         for batch_num, (res, hr, true_lr, upscaled_lr) in tqdm(enumerate(data_loader), total=len(data_loader), ascii=True):
+            batch_start_time = time.perf_counter()
+            data_wait_time += batch_start_time - iter_end_time
+
             if len(upscaled_lr.shape) == 3:
                 img = upscaled_lr.view(upscaled_lr.shape[0],1,upscaled_lr.shape[1], upscaled_lr.shape[2])#(img)# - 293)/(8000 - 293)
                 target = hr.view(hr.shape[0],1, hr.shape[1], hr.shape[2])#(target)# - 293)/(8000 - 293)
             else:
                 img = upscaled_lr
                 target = hr
+
+            _sync_cuda()
+            step_start = time.perf_counter()
             img = img.to(device)
             target = target.to(device)
+            _sync_cuda()
+            to_device_time += time.perf_counter() - step_start
 
+            _sync_cuda()
+            step_start = time.perf_counter()
             output = model(img)
+            _sync_cuda()
+            forward_time += time.perf_counter() - step_start
+
+            _sync_cuda()
+            step_start = time.perf_counter()
             loss = criterion(output, target)
             psnr = PSNR(output, target,img.shape[0])
             psnr_les = PSNR(img, target,img.shape[0])
             ssim_dns =0# SSIM(output, target, img.shape[0])
             ssim_les =0# SSIM(img, target, img.shape[0])
+            _sync_cuda()
+            metrics_time += time.perf_counter() - step_start
 
             running_loss += loss.item()/len(data_loader)
             avg_psnr += psnr.item()/len(data_loader)
@@ -325,6 +423,7 @@ def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
             # avg_ssim_dns += ssim_dns.item()/len(data_loader)
             # avg_ssim_les += ssim_les.item()/len(data_loader)
             if batch_num % 500 == 0:
+                plot_start = time.perf_counter()
                 plot_directory = image_dir + '/epoch_{}/good_train_examples/'.format(epoch)
                 os.makedirs(plot_directory,exist_ok=True)
 
@@ -362,8 +461,26 @@ def dev_epoch(model, data_loader, criterion, epoch = 0, image_dir = ''):
                 # print('saved')
                 # print(image_dir + '/epoch_{}/good_train_examples/line_plot{}.png'.format(epoch,batch_num))
                 plt.clf()
+                plotting_time += time.perf_counter() - plot_start
+            iter_end_time = time.perf_counter()
         torch.cuda.empty_cache()
-        end_time = time.time()
+        end_time = time.perf_counter()
+        num_batches = len(data_loader)
+        _append_timing_log(
+            timing_log_path,
+            'dev',
+            epoch,
+            {
+                'num_batches': num_batches,
+                'epoch_seconds': end_time - start_time,
+                'avg_data_wait_seconds': data_wait_time / num_batches,
+                'avg_to_device_seconds': to_device_time / num_batches,
+                'avg_forward_seconds': forward_time / num_batches,
+                'avg_loss_metric_seconds': metrics_time / num_batches,
+                'avg_plotting_seconds': plotting_time / max(1, (num_batches + 499) // 500),
+                'total_plotting_seconds': plotting_time,
+            },
+        )
         if not loss:
             return running_loss, avg_psnr_les, avg_psnr, avg_ssim_les, avg_ssim_dns
         del img
@@ -476,7 +593,7 @@ def train_predictions(model, train_loader, img_dir, epoch):
 
     return avg_psnr, avg_psnr_les, avg_les_ke, avg_recon_ke, avg_dns_ke, avg_ssim_les, avg_ssim_dns
 
-def test_predictions(model, test_loader, epoch = 0, img_dir = ''):
+def test_predictions(model, test_loader, epoch = 0, img_dir = '', timing_log_path = ''):
     with torch.no_grad():
         model.eval()
         avg_psnr = 0
@@ -496,7 +613,16 @@ def test_predictions(model, test_loader, epoch = 0, img_dir = ''):
         R_ = []
         D_ = []
 
+        start_time = time.perf_counter()
+        data_wait_time = 0.0
+        to_device_time = 0.0
+        forward_time = 0.0
+        metrics_time = 0.0
+        iter_end_time = start_time
+
         for batch_idx, (res, hr, true_lr, upscaled_lr) in enumerate(test_loader):   
+            batch_start_time = time.perf_counter()
+            data_wait_time += batch_start_time - iter_end_time
 #             breakpoint()
 #             if img.shape[1] == 1:
 #                 continue
@@ -508,10 +634,22 @@ def test_predictions(model, test_loader, epoch = 0, img_dir = ''):
             else:
                 img =upscaled_lr
                 target = hr
+
+            _sync_cuda()
+            step_start = time.perf_counter()
             img = img.to(device)
             target = target.to(device)
+            _sync_cuda()
+            to_device_time += time.perf_counter() - step_start
             
+            _sync_cuda()
+            step_start = time.perf_counter()
             out = model(img)# - 293)/(8000 - 293)
+            _sync_cuda()
+            forward_time += time.perf_counter() - step_start
+
+            _sync_cuda()
+            step_start = time.perf_counter()
             psnr = PSNR(out, target, img.shape[0])
             psnr_les = PSNR(img, target, img.shape[0])
 
@@ -520,6 +658,8 @@ def test_predictions(model, test_loader, epoch = 0, img_dir = ''):
 
             ssim_dns =0# SSIM(out, target, img.shape[0])
             ssim_les = 0#SSIM(img, target, img.shape[0])
+            _sync_cuda()
+            metrics_time += time.perf_counter() - step_start
             L.append(les_ke.cpu().numpy())
             R.append(recon_ke.cpu().numpy())
             D.append(dns_ke.cpu().numpy())
@@ -557,9 +697,25 @@ def test_predictions(model, test_loader, epoch = 0, img_dir = ''):
             avg_dns_ke += dns_ke.item()/len(test_loader)
             avg_recon_ke += recon_ke.item()/len(test_loader)
             avg_les_ke += les_ke.item()/len(test_loader)
-
             avg_ssim_les += 0# ssim_les.item()/len(test_loader)
             avg_ssim_dns += 0#ssim_dns.item()/len(test_loader)
+            iter_end_time = time.perf_counter()
+
+        end_time = time.perf_counter()
+        num_batches = len(test_loader)
+        _append_timing_log(
+            timing_log_path,
+            'test',
+            epoch,
+            {
+                'num_batches': num_batches,
+                'epoch_seconds': end_time - start_time,
+                'avg_data_wait_seconds': data_wait_time / num_batches,
+                'avg_to_device_seconds': to_device_time / num_batches,
+                'avg_forward_seconds': forward_time / num_batches,
+                'avg_metric_seconds': metrics_time / num_batches,
+            },
+        )
 
     # plot_MAE(L, R, D)
     # plot_Avg_MAE(L_, R_, D_)

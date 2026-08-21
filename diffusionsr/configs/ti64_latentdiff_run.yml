@@ -1,0 +1,88 @@
+# Config template for latent diffusion between two frozen VAE encoders.
+# Launch from the diffusionsr/ directory:
+#   python runners/train_latentdiff.py --config ss316l_latentdiff_run.yml --gpu 0
+# Override sampler/timesteps from the CLI:
+#   python runners/train_latentdiff.py --config ss316l_latentdiff_run.yml --gpu 0 --sampler DDIM --timesteps 400 --sample_timesteps 50
+# Logic-test direct latent NN instead of diffusion:
+#   python runners/train_latentdiff.py --config ss316l_latentdiff_run.yml --gpu 0 --mode nn
+
+# -----------------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------------
+root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
+downscale_method: "direct"
+n_steps: "1"
+fields: "temperature"
+normalize_method: "standardize"
+out_steps: null
+
+# Fake-depth compatibility for 3D VAE encoders. Ignored for 2D encoders.
+inflate_dim: 4
+inflate_method: "repeat"
+
+# -----------------------------------------------------------------------------
+# Frozen latent encoders
+# -----------------------------------------------------------------------------
+# These can be checkpoint files or run directories containing best_model.pth/ckpt.pth.
+# Typical SR latent diffusion uses an LR VAE encoder for conditioning and an HR VAE
+# encoder for the target latent.
+latent_input_encoder_dir: "./runs/direct/vae2d/2026_05_18_16_32_16/standardize/n_steps_1"
+latent_input_encoder_checkpoint: "best_model.pth"
+latent_target_encoder_dir: "./runs/direct/vae2d/2026_05_18_15_42_18/standardize/n_steps_1"
+latent_target_encoder_checkpoint: "best_model.pth"
+
+# Dataset tuple item encoded by each frozen VAE.
+# Accepted values: residual, hr, high_resolution, lr, true_lr, upscaled_lr.
+latent_input_type: "lr"
+latent_target_type: "hr"
+
+# Use posterior samples instead of encoder means. False is deterministic and best
+# for initial logic checks.
+latent_sample_posterior: false
+
+# -----------------------------------------------------------------------------
+# Training mode
+# -----------------------------------------------------------------------------
+# diffusion -> conditional latent DDPM denoiser predicts target latent noise.
+# nn        -> direct CNN maps input latent to target latent; useful for logic tests.
+latent_training_mode: "diffusion"
+
+# Diffusion settings. Used only in diffusion mode.
+# latent_timesteps is the forward/noising chain length used during training.
+# Higher values are more expressive but slower; 200 is a useful early pipeline test.
+latent_timesteps: 200
+latent_schedule: "linear"  # linear or cosine
+
+# Reverse sampler for latent previews/generation: DDPM or DDIM.
+# DDPM is stochastic and should usually use latent_timesteps for exact sampling.
+# DDIM can use fewer reverse steps for faster deterministic previews.
+latent_sampler: "DDPM"
+latent_sample_timesteps: 100
+latent_ddim_eta: 0.0  # 0.0 deterministic DDIM; >0 adds stochasticity
+
+# Loss used for noise prediction or direct latent prediction: l1, l2, huber.
+latent_loss_type: "huber"
+
+# Small latent model architecture.
+latent_hidden_channels: 64
+latent_num_blocks: 4
+
+# -----------------------------------------------------------------------------
+# Optimizer and runtime
+# -----------------------------------------------------------------------------
+epochs: 100
+batch_size: 32
+learning_rate: 1.0e-4
+latent_learning_rate: null  # null means use learning_rate
+latent_weight_decay: 0.0
+latent_grad_clip_norm: null
+latent_num_workers: 0
+
+# -----------------------------------------------------------------------------
+# Logging and checkpoints
+# -----------------------------------------------------------------------------
+latent_log_interval: 50
+latent_sample_interval: 5
+latent_save_every: 0
+wandb_project: "Flow3D_SuperResolution"
+wandb_mode: "online"  # online, offline, or disabled

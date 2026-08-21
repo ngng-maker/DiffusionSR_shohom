@@ -109,6 +109,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             new_out = output
             if train_dataset.out_steps == 1 and train_dataset.num_fields == 1:
                 loss = criterion(output.float(), (target[:,-1:].float()))
+                loss_temp = 0.0
+                loss_label = 0.0
             else:
                 print("Using multiple fields")
                 loss = criterion(output.float(), (target.float()))
@@ -274,6 +276,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             if train_dataset.out_steps == 1 and train_dataset.num_fields == 1:
 
                 loss = criterion(output.float(), (target[:,-1:].float()))
+                loss_temp = 0.0
+                loss_label = 0.0
                
             else:
                 loss = criterion(output.float(), (target.float()))

@@ -614,6 +614,7 @@ class DiffusionModel():
         wandb.log({f'{split}-panel': wandb.Image(os.path.join(self.results_folder,
                     self.save_prefix + f'{split}-panel-{epoch}.png'))}, step = epoch)
         plt.clf()
+        
     def batch_sample(self, dataset, batch, x_e, sampler = 'DDPM', skip = None, **kwargs):
         
         timesteps = self.timesteps

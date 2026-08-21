@@ -1,0 +1,56 @@
+# Ti6Al4V original-field true-3D VAE config for the HR target field.
+# Run from diffusionsr/:
+#   python runners/train_3ddiff.py --config ti64_multifield_vae_3d_hr.yml --gpu 0 --modeltype vae3d
+
+root_folder: "./data/ti6al4v_processed_3d_fields_seed20260518"
+#"./data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_fields_seed20260518"
+downscale_method: "direct"
+n_steps: "1"
+fields: "temperature_liqlabel_meltregion"
+normalize_method: "standardize"
+out_steps: null
+
+encoding: false
+residual_flag: false
+conditioning: "explicit"
+schedule: "linear"
+timesteps: 1000
+use_pretrained: false
+encoder_results_dir: null
+enc_output: false
+transform_rescale: false
+loss_type: "huber"
+
+epochs: 20
+batch_size: 1
+learning_rate: 5.0e-4
+
+vae_input_type: "hr"
+vae_target: "hr"
+vae_spatial_dims: 3
+vae_input_channels: null
+vae_output_channels: null
+vae_latent_channels: 8
+vae_hidden_channels: 64
+vae_channel_multipliers: [1, 2, 4]
+vae_output_activation: null
+vae_beta: 1.0e-6
+vae_reconstruction_loss: "l1"
+vae_kl_anneal_epochs: 0
+vae_weight_decay: 0.0
+vae_grad_clip_norm: null
+vae_num_workers: 0
+vae_log_interval: 5
+vae_sample_interval: 5
+vae_save_every: 0
+
+# True 3D arrays already include depth; do not fake-depth inflate.
+inflate_dim: null
+inflate_method: "repeat"
+
+voxel_save_interval: 0
+voxel_sample_batch_idx: 0
+voxel_threshold: 1800.0
+voxel_channel: 0
+voxel_sampler: "DDIM"
+voxel_skip: 10

@@ -1,0 +1,23 @@
+root_folder: "../data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame_4x"
+downscale_method: "direct"
+n_steps: "1"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+
+normalize_method: "standardize"
+schedule: "linear"
+fields: 'temperature'
+timesteps: 1000
+batch_size: 32
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+
+# Intentionally left unset for a clean 4x run.
+# This config assumes a separate dataset root where:
+# - HR is 4x larger than LR/direct/1x
+# - LR/direct/4x exists on the HR grid
+# Do not reuse the 2x restart_dir or encoder_results_dir here.
+# restart_dir: ''
+# encoder_results_dir: ''

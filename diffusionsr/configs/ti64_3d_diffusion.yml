@@ -1,0 +1,67 @@
+# Ti6Al4V true-3D diffusion config.
+# Launch from the diffusionsr/ directory:
+#   python runners/train_3ddiff.py --config ti64_3d_diffusion.yml --gpu 0 --modeltype diffusion
+
+# -----------------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------------
+# Root must contain train/dev/test folders with HR and LR/direct/{1x,4x} data.
+root_folder: "/home/shohom-tfc/src/LPBFDiffusionSR/diffusionsr/data/box_data/Ti6Al4V/splits/ti6al4v_processed_3d_seed20260518"
+downscale_method: "direct"
+
+# Number of temporal frames stacked as channels. Keep 1 for the current Ti64 split.
+n_steps: "1"
+out_steps: null
+
+# Supported values in the runner: temperature, temperature_liqlabel, all, all_but_pressure.
+# Ti64 currently maps temperature only.
+fields: "temperature"
+
+# standardize uses dataset statistics; rescaling maps physical fields to [-1, 1].
+normalize_method: "standardize"
+
+# True 3D volumes already have depth explicitly. Leave inflate_dim null.
+# For old fake-depth 2D runs, set this to a divisor-of-4 depth such as 4 or 8.
+inflate_dim: null
+inflate_method: "repeat"
+
+# -----------------------------------------------------------------------------
+# Diffusion objective
+# -----------------------------------------------------------------------------
+# Number of DDPM forward/noising steps. Use 50-100 for a smoke test, 1000 for a full run.
+timesteps: 1000
+schedule: "linear"        # linear, quadratic, sigmoid, cosine
+loss_type: "huber"        # l1, l2, huber
+residual_flag: false       # false trains HR prediction; true only changes folder tag in this runner
+
+# -----------------------------------------------------------------------------
+# Conditioning / encoder wiring
+# -----------------------------------------------------------------------------
+# Recommended for true 3D Ti64: no 2D RRDB encoder, condition by concatenating upscaled LR.
+encoding: false
+conditioning: "explicit"  # explicit concatenates noisy HR and upscaled LR volumes
+use_pretrained: false
+encoder_results_dir: null
+enc_output: false
+transform_rescale: false
+
+# -----------------------------------------------------------------------------
+# Optimization
+# -----------------------------------------------------------------------------
+# If every volume shape is fixed and GPU memory allows it, batch_size can be increased.
+# Start with 1 for true 3D because memory climbs quickly.
+batch_size: 1
+epochs: 100
+learning_rate: 5.0e-5
+additional_epochs: null
+
+# -----------------------------------------------------------------------------
+# 3D voxel diagnostics
+# -----------------------------------------------------------------------------
+# Keep disabled for the first run. Sampling full 3D DDPM/DDIM previews is expensive.
+voxel_save_interval: 0
+voxel_sample_batch_idx: 0
+voxel_threshold: 1800.0
+voxel_channel: 0
+voxel_sampler: "DDIM"
+voxel_skip: 10

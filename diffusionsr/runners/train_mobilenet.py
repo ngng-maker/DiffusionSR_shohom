@@ -96,16 +96,26 @@ def train_mobilenet(results_folder, train_dataset, dev_dataset, test_dataset, nu
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode = 'min', factor = 0.95, patience=3, threshold=5e-4, eps=1e-6)
     model_dir = results_folder
     img_dir = os.path.join(results_folder, 'images')
+    timing_log_path = os.path.join(results_folder, 'timing.log')
     os.makedirs(model_dir,exist_ok = True)
     os.makedirs(img_dir,exist_ok = True)
+
+    with open(timing_log_path, 'w') as timing_log:
+        timing_log.write('MobileNet timing diagnostics\n')
+        timing_log.write(f'batch_size: {batch_size}\n')
+        timing_log.write(f'num_epochs: {num_epochs}\n')
+        timing_log.write(f'learning_rate: {learning_rate}\n')
+        timing_log.write(f'train_samples: {len(train_dataset)}\n')
+        timing_log.write(f'dev_samples: {len(dev_dataset)}\n')
+        timing_log.write(f'test_samples: {len(test_dataset)}\n\n')
 
 
 
     for epoch in range(num_epochs):
         if epoch % 10 == 0:
-            test_predictions(model, test_loader, epoch  = epoch, img_dir = img_dir)
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, epoch = epoch, image_dir=img_dir)
-        dev_loss, psnr_les, psnr, ssim_les, ssim_dns = dev_epoch(model, dev_loader, criterion, epoch = epoch, image_dir=img_dir)
+            test_predictions(model, test_loader, epoch  = epoch, img_dir = img_dir, timing_log_path = timing_log_path)
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, epoch = epoch, image_dir=img_dir, timing_log_path = timing_log_path)
+        dev_loss, psnr_les, psnr, ssim_les, ssim_dns = dev_epoch(model, dev_loader, criterion, epoch = epoch, image_dir=img_dir, timing_log_path = timing_log_path)
         Train_Loss.append(train_loss)
         print(Train_Loss)
         Dev_Loss.append(dev_loss)
