@@ -12,34 +12,8 @@ from diffusionsr.runners.train_diffusion_3d import DiffusionModel3D
 from diffusionsr.runners.train_mobilenet import train_mobilenet
 from diffusionsr.runners.train_rrdn_encoder import pretrain_encoder
 from diffusionsr.runners.train_vae import VAETrainer, parse_channel_multipliers
+from diffusionsr.utils import dict2namespace, config_to_field_names
 import wandb
-
-def dict2namespace(config):
-    namespace = argparse.Namespace()
-    for key, value in config.items():
-        if isinstance(value, dict):
-            new_value = dict2namespace(value)
-        else:
-            new_value = value
-        setattr(namespace, key, new_value)
-    return namespace
-
-
-def config_to_field_names(fields):
-    field_aliases = {'melt_region': 'meltregion'}
-    if fields == 'temperature':
-        return ['temperature']
-    if fields == 'all':
-        return None
-    if fields == 'all_but_pressure':
-        return ['vx', 'temperature', 'vy', 'vz', 'liqlabel']
-    if fields == 'temperature_liqlabel':
-        return ['temperature', 'liqlabel']
-    if fields in ['temperature_liqlabel_meltregion', 'temperature_liqlabel_melt_region']:
-        return ['temperature', 'liqlabel', 'meltregion']
-    if isinstance(fields, (list, tuple)):
-        return [field_aliases.get(field, field) for field in fields]
-    raise ValueError(f'Unsupported fields config: {fields}')
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])

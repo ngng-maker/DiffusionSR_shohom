@@ -147,21 +147,7 @@ def linear_energy_density(power: np.ndarray, velocity: np.ndarray) -> np.ndarray
     return np.divide(power, velocity, out=np.full_like(power, np.nan), where=velocity != 0)
 
 
-def config_to_field_names(fields) -> Optional[List[str]]:
-    field_aliases = {"melt_region": "meltregion"}
-    if fields == "temperature":
-        return ["temperature"]
-    if fields == "temperature_liqlabel":
-        return ["temperature", "liqlabel"]
-    if fields in ["temperature_liqlabel_meltregion", "temperature_liqlabel_melt_region"]:
-        return ["temperature", "liqlabel", "meltregion"]
-    if fields == "all_but_pressure":
-        return ["vx", "temperature", "vy", "vz", "liqlabel"]
-    if fields in ["all", None]:
-        return None
-    if isinstance(fields, (list, tuple)):
-        return [field_aliases.get(field, field) for field in fields]
-    raise ValueError(f"Unsupported fields config: {fields}")
+from diffusionsr.utils import config_to_field_names  # noqa: E402
 
 
 def discover_checkpoints(

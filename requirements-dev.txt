@@ -1,0 +1,3 @@
+# Development-only dependencies (not needed to run training/inference)
+-r requirements.txt
+pytest

@@ -22,10 +22,11 @@ from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 import wandb
 
-from diffusionsr.models.vae import KLVAE
+from diffusionsr.models.vae_model import VAE2D, vae_loss
 from diffusionsr.runners.train_diffusion import DiffusionModel, forwardpass
 
-LATENT_CH = KLVAE.LATENT_CH   # 4
+LATENT_CH = 4  # latent channels; must match VAE latent_channels
+_VAE_CHANNEL_MULTS = (1, 2)  # two stride-2 stages → 4x spatial reduction, same as original KLVAE
 
 
 # ── VAE pretraining ────────────────────────────────────────────────────────────
@@ -47,7 +48,8 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
         return
 
     in_ch = train_dataset.n_steps * train_dataset.num_fields
-    vae = KLVAE(in_channels=in_ch, base_ch=base_ch, latent_ch=LATENT_CH).cuda()
+    vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
+                hidden_channels=base_ch, channel_multipliers=_VAE_CHANNEL_MULTS).cuda()
     opt = Adam(vae.parameters(), lr=lr)
 
     # Restart from epoch checkpoint if interrupted
@@ -79,8 +81,8 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
         ep_loss = []
         for _, hr, _, _ in train_dl:
             hr = hr.cuda().float()
-            recon, mu, logvar = vae(hr)
-            loss, _, _ = KLVAE.loss(recon, hr, mu, logvar, beta=beta_kl)
+            out = vae(hr)
+            loss = vae_loss(out, hr, beta=beta_kl)['loss']
             opt.zero_grad(); loss.backward(); opt.step()
             ep_loss.append(loss.item())
         train_mean = np.mean(ep_loss)
@@ -91,8 +93,8 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
         with torch.no_grad():
             for _, hr, _, _ in dev_dl:
                 hr = hr.cuda().float()
-                recon, mu, logvar = vae(hr)
-                loss, _, _ = KLVAE.loss(recon, hr, mu, logvar, beta=beta_kl)
+                out = vae(hr)
+                loss = vae_loss(out, hr, beta=beta_kl)['loss']
                 val_ep.append(loss.item())
         val_mean = np.mean(val_ep)
         val_losses.append(val_mean)
@@ -144,7 +146,8 @@ class LDMModel(DiffusionModel):
 
     def _load_vae(self, vae_folder):
         in_ch = self.train_dataset.n_steps * self.train_dataset.num_fields
-        vae = KLVAE(in_channels=in_ch, latent_ch=LATENT_CH).to(self.device)
+        vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
+                    channel_multipliers=_VAE_CHANNEL_MULTS).to(self.device)
         vae_path = os.path.join(vae_folder, 'vae_best.pth')
         state = torch.load(vae_path, map_location=self.device)
         vae.load_state_dict(state)

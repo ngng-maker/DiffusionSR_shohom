@@ -13,7 +13,10 @@ opencv-python
 Pillow
 PyYAML
 scikit-image
+scikit-learn
+scipy
+pandas
 torchsummary
 tqdm
+# gdown is used by download_data.sh (shell script), not imported in Python code
 gdown
-pytest

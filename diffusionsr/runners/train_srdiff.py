@@ -11,17 +11,8 @@ from torch.utils.data import DataLoader
 from diffusionsr.runners.train_diffusion import DiffusionModel
 from diffusionsr.runners.train_mobilenet import train_mobilenet
 from diffusionsr.runners.train_rrdn_encoder import pretrain_encoder
+from diffusionsr.utils import dict2namespace, config_to_field_names
 import wandb
-
-def dict2namespace(config):
-    namespace = argparse.Namespace()
-    for key, value in config.items():
-        if isinstance(value, dict):
-            new_value = dict2namespace(value)
-        else:
-            new_value = value
-        setattr(namespace, key, new_value)
-    return namespace
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
@@ -99,21 +90,7 @@ if encoding_flag:
 else:
     encoder = 'upscaled'
 
-# Field selection
-field_names = None
-fields_val = getattr(new_config, 'fields', 'all')
-if fields_val == 'temperature':
-    field_names = ['temperature']
-elif fields_val == 'liqlabel':
-    field_names = ['liqlabel']
-elif fields_val == 'temperature_liqlabel':
-    field_names = ['temperature', 'liqlabel']
-elif fields_val == 'temperature_liqlabel_pressure':
-    field_names = ['temperature', 'liqlabel', 'pressure']
-elif fields_val == 'all_but_pressure':
-    field_names = ['vx', 'temperature', 'vy', 'vz', 'liqlabel']
-elif fields_val == 'all':
-    field_names = None
+field_names = config_to_field_names(combined_dict)
 print(field_names)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -208,7 +185,7 @@ if modeltype == 'diffusion':
     shutil.copy(config_path,
                 os.path.join(diffusion_results_dir, 'configuration.yml'))
     with open(os.path.join(diffusion_results_dir, 'information.txt'), 'w') as f:
-        f.write(f'schedule: {schedule}, timesteps: {timesteps} fields: {fields_val}\n'
+        f.write(f'schedule: {schedule}, timesteps: {timesteps} fields: {combined_dict.get("fields")}\n'
                 f'pretrained_encoder: {encoder_results_dir}\n'
                 f'diffusion timesteps {timesteps}')
     if restart:

@@ -12,7 +12,7 @@ conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
 cd /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr
 
-export WANDB_ENTITY=ngng-
+export WANDB_ENTITY="${WANDB_ENTITY:-ngng-}"
 export PYTHONPATH=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom:$PYTHONPATH
 export WANDB_DIR=/trace/group/forgelab/ngng/wandb
 export WANDB_DATA_DIR=/trace/group/forgelab/ngng/wandb_data

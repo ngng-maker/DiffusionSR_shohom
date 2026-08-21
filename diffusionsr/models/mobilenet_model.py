@@ -168,16 +168,6 @@ def init_weights(m):
         nn.init.normal_(m.weight, 0, 0.01)
         nn.init.zeros_(m.bias)
 
-def PSNR(op, t, batch_size): 
-    mse = torch.sum((t - op) ** 2) 
-    #print(mse.size())
-    mse /= (batch_size*64*64)
-
-    max_pixel = 1.
-    psnr = 20 * torch.log10(max_pixel / torch.sqrt(mse))
-    #print(psnr.size())
-    return psnr 
-
 def KE(img, op, t): 
     ke_recon = torch.sum(op ** 2)/op.size()[0] 
     ke_dns = torch.sum(t ** 2)/t.size()[0] 
@@ -200,19 +190,6 @@ def Avg_KE(img, op, t):
     return ke_les, ke_recon, ke_dns
 
 
-
-def SSIM(op, t, batch_size):
-    ssim = 0 
-    #print(op.size(), t.size())
-    for i in range(op.size()[0]):
-        tar = to_img(t[i])
-        out = to_img(op[i])
-        # print(out[0,0].size())
-        (score, diff) = ssim(out[0,0].cpu().detach().numpy(), tar[0,0].cpu().numpy(), full=True)
-        ssim+=score/batch_size
-    
-        #print("SSIM: {}".format(score))
-    return ssim
 
 def train_epoch(model, data_loader, criterion, optimizer, epoch = 0, image_dir = '', timing_log_path = ''):
     dataset = data_loader.dataset

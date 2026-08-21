@@ -23,6 +23,12 @@ from tqdm.auto import tqdm
 from diffusionsr.datasets.dataset import SimulationXZDataset
 from diffusionsr.models.vae_model import VAE2D, VAE3D
 from diffusionsr.runners.train_vae import parse_channel_multipliers
+from diffusionsr.utils import (
+    cosine_beta_schedule,
+    linear_beta_schedule,
+    dict2namespace,
+    config_to_field_names,
+)
 
 
 _TARGET_INDEX = {
@@ -252,19 +258,6 @@ class DirectLatentPredictor(nn.Module):
     def forward(self, condition_latent: torch.Tensor, output_shape: Sequence[int]) -> torch.Tensor:
         condition_latent = resize_to_spatial(condition_latent, output_shape, self.spatial_dims)
         return self.net(condition_latent)
-
-
-def linear_beta_schedule(timesteps: int) -> torch.Tensor:
-    return torch.linspace(0.0001, 0.02, int(timesteps))
-
-
-def cosine_beta_schedule(timesteps: int, s: float = 0.008) -> torch.Tensor:
-    steps = int(timesteps) + 1
-    x = torch.linspace(0, int(timesteps), steps)
-    alphas_cumprod = torch.cos(((x / int(timesteps)) + s) / (1 + s) * torch.pi * 0.5) ** 2
-    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0.0001, 0.9999)
 
 
 def make_beta_schedule(schedule: str, timesteps: int) -> torch.Tensor:
@@ -914,31 +907,6 @@ class LatentDiffusionTrainer:
         self._log_artifact(self.results_folder / "ckpt.pth", aliases=["latest"], metadata=final_metrics)
         self._log_timestamp("train_end", best_validation_loss=self.best_validation_loss)
         return final_metrics
-
-
-def dict2namespace(config: dict) -> argparse.Namespace:
-    namespace = argparse.Namespace()
-    for key, value in config.items():
-        setattr(namespace, key, dict2namespace(value) if isinstance(value, dict) else value)
-    return namespace
-
-
-def config_to_field_names(config_dict: dict):
-    fields = config_dict.get("fields")
-    field_aliases = {"melt_region": "meltregion"}
-    if fields == "temperature":
-        return ["temperature"]
-    if fields == "temperature_liqlabel":
-        return ["temperature", "liqlabel"]
-    if fields in ["temperature_liqlabel_meltregion", "temperature_liqlabel_melt_region"]:
-        return ["temperature", "liqlabel", "meltregion"]
-    if fields == "all_but_pressure":
-        return ["vx", "temperature", "vy", "vz", "liqlabel"]
-    if fields in ["all", None]:
-        return None
-    if isinstance(fields, (list, tuple)):
-        return [field_aliases.get(field, field) for field in fields]
-    raise ValueError(f"Unsupported fields config: {fields}")
 
 
 def project_root() -> Path:

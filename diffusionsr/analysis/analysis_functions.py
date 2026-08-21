@@ -12,6 +12,13 @@ from diffusionsr.runners.train_diffusion import forwardpass, num_to_groups
 from skimage.metrics import structural_similarity as ssim_id
 from diffusionsr.runners.train_diffusion import DiffusionModel
 from diffusionsr.analysis.plotting_functions import frame_tick, legend
+from diffusionsr.analysis.metrics import PSNR, SSIM
+from diffusionsr.utils import (
+    cosine_beta_schedule,
+    linear_beta_schedule,
+    quadratic_beta_schedule,
+    sigmoid_beta_schedule,
+)
 
 device = 'cuda'
 
@@ -133,29 +140,6 @@ def predict_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timestep
     def savefig(filename):
         plt.savefig(filename, bbox_inches='tight')
 
-    def cosine_beta_schedule(timesteps, s=0.008):
-        """
-        cosine schedule as proposed in https://arxiv.org/abs/2102.09672
-        """
-        steps = timesteps + 1
-        x = torch.linspace(0, timesteps, steps)
-        alphas_cumprod = torch.cos(
-            ((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0.0001, 0.9999)
-
-    def linear_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start, beta_end, timesteps)
-
-
-    def quadratic_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
-
     @torch.no_grad()
     def p_sample_loop(model, x_e, shape, timesteps):
         device = next(model.parameters()).device
@@ -170,20 +154,6 @@ def predict_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, timestep
                 (b,), i, device=device, dtype=torch.long), i)
             imgs.append(img.cpu())
         return imgs
-
-    def sigmoid_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        betas = torch.linspace(-6, 6, timesteps)
-        return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
-
-    # def num_to_groups(num, divisor):
-    #     groups = num // divisor
-    #     remainder = num % divisor
-    #     arr = [divisor] * groups
-    #     if remainder > 0:
-    #         arr.append(remainder)
-    #     return arr
 
     @torch.no_grad()
     def sample(model, x_e, image_size, timesteps, batch_size=16, channels=3):
@@ -242,32 +212,6 @@ def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq
     # skip =timesteps // self.args.timesteps
     seq = range(0, timesteps, skip)
     
-    def cosine_beta_schedule(timesteps, s=0.008):
-
-        steps = timesteps + 1
-        x = torch.linspace(0, timesteps, steps)
-        alphas_cumprod = torch.cos(
-            ((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0.0001, 0.9999)
-
-    def linear_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start, beta_end, timesteps)
-
-
-    def quadratic_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
-
-    def sigmoid_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        betas = torch.linspace(-6, 6, timesteps)
-        return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
     if schedule == 'linear':
         betas = linear_beta_schedule(timesteps=timesteps)
     elif schedule == 'quadratic':
@@ -369,29 +313,6 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
     def savefig(filename):
         plt.savefig(filename, bbox_inches='tight')
 
-    def cosine_beta_schedule(timesteps, s=0.008):
-        """
-        cosine schedule as proposed in https://arxiv.org/abs/2102.09672
-        """
-        steps = timesteps + 1
-        x = torch.linspace(0, timesteps, steps)
-        alphas_cumprod = torch.cos(
-            ((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0.0001, 0.9999)
-
-    def linear_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start, beta_end, timesteps)
-
-
-    def quadratic_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
-
     @torch.no_grad()
     def p_sample_loop(model, x_e, shape, timesteps):
         device = next(model.parameters()).device
@@ -406,20 +327,6 @@ def predict_modified_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset,
                 (b,), i, device=device, dtype=torch.long), i)
             imgs.append(img.cpu())
         return imgs
-
-    def sigmoid_beta_schedule(timesteps):
-        beta_start = 0.0001
-        beta_end = 0.02
-        betas = torch.linspace(-6, 6, timesteps)
-        return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
-
-    # def num_to_groups(num, divisor):
-    #     groups = num // divisor
-    #     remainder = num % divisor
-    #     arr = [divisor] * groups
-    #     if remainder > 0:
-    #         arr.append(remainder)
-    #     return arr
 
     @torch.no_grad()
     def sample(model, x_e, image_size, timesteps, batch_size=16, channels=3):
@@ -729,29 +636,6 @@ def load_encoder(encoder_results_dir, dataset):
     lr_enc.eval()
     return lr_enc
 
-def PSNR(op, t, batch_size): 
-    mse = torch.sum((t - op) ** 2) 
-    mse /= (batch_size*80*80)
-    max_pixel = torch.max(t)
-    psnr = 20 * torch.log10(max_pixel / torch.sqrt(mse))
-    return psnr 
-
-def SSIM(op, t, batch_size):
-    ssim = 0 
-    # print(op.shape, t.shape)
-    
-    for i in range(op.shape[0]):
-
-        # print(out[0,0].size())
-        # print(op.shape, t.shape)
-        if isinstance(op, torch.Tensor):
-            score = ssim_id(op[i][0].detach().cpu().numpy(), t[i][0].detach().cpu().numpy())#, full=True)
-        else:
-            score = ssim_id(op[i][0], t[i][0].detach().cpu().numpy())#, full=True)
-        ssim+=score/batch_size
-    
-        #print("SSIM: {}".format(score))
-    return ssim
 def plot_srdiff_contours(input, result, target, modeltype, split = 'train', max_temp = 5000, min_temp = 293, dpi = 90, scaling_factor = 1.5, method = 'Direct'):
     profile_result, kp_result = get_profile(result)
 
