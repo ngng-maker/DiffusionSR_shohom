@@ -1,0 +1,15 @@
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "3"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "liqlabel"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "huber"

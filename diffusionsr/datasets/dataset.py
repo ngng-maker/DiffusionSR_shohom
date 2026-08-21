@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 import numpy as np
@@ -6,18 +7,32 @@ import torch
 from tqdm import tqdm
 import glob
 from matplotlib import pyplot as plt
+from scipy.ndimage import distance_transform_edt
 from diffusionsr.datasets.dataset_utils import filter_data
 
 class SimulationXZDataset(Dataset):
+    @staticmethod
+    def _signed_distance_from_liquid(liquid):
+        """Signed distance field from a binary liquid mask (positive inside, negative outside)."""
+        liquid = np.asarray(liquid, dtype=bool)
+        max_distance = max(float(np.linalg.norm(liquid.shape)), 1.0)
+        if not np.any(liquid):
+            return np.full(liquid.shape, -max_distance, dtype=np.float32)
+        if np.all(liquid):
+            return np.full(liquid.shape, max_distance, dtype=np.float32)
+        return (distance_transform_edt(liquid) - distance_transform_edt(~liquid)).astype(np.float32)
+
     def __init__(self,
                  downscale_method,
                  root_folder='../../data/update_v2_laser_velocity_xz_cross_section_data',
                  split='train',
                  normalize='standardize',
-                 return_info=False, 
+                 return_info=False,
                  n_steps=1,
-                 field_names = None, 
-                 out_steps = None):
+                 field_names=None,
+                 out_steps=None,
+                 sdf_liqlabel=False,
+                 last_n_per_pv=None):
         
         # Use default HR paths, always the same
         # Use LR path as specified, may change
@@ -59,17 +74,17 @@ class SimulationXZDataset(Dataset):
         self.field_idxs = [all_field_names[key] for key in self.field_names]
         self.num_fields = len(self.field_names)
         
+        self.sdf_liqlabel = sdf_liqlabel and ('liqlabel' in self.field_names)
+        self.last_n_per_pv = last_n_per_pv
         self.powers = []
         self.velocities = []
         self.times = []
 
         # Set indices for specific fields
-
         self.field_idxs_steps = []
         for i in range(self.n_steps):
             for j in self.field_idxs:
                 self.field_idxs_steps.append(j*(i+1))
-
 
         print(f"Processing dataset with {len(self.field_names)} fields")
         # Creating dataset splits
@@ -132,10 +147,18 @@ class SimulationXZDataset(Dataset):
 
 
         self.img_shape = int(test_hr_shape[0])
-      
+
+        # Filter to last N timesteps per (power, velocity) combination
+        if self.last_n_per_pv is not None:
+            keep = self._last_n_per_pv_indices(self.lr_paths, self.last_n_per_pv)
+            self.lr_paths        = self.lr_paths[keep]
+            self.hr_paths        = self.hr_paths[keep]
+            self.upscaled_lr_paths = self.upscaled_lr_paths[keep]
+            print(f"last_n_per_pv={self.last_n_per_pv}: kept {len(keep)} of {len(keep) + (len(self.lr_paths) - len(keep))} samples")
+
         test_hr_shape.insert(0, len(self.lr_paths))
         test_lr_shape.insert(0, len(self.lr_paths))
-       
+
         self.compute_statistics()
          
         self.t_max = 5000
@@ -143,12 +166,40 @@ class SimulationXZDataset(Dataset):
         self.field_max = {'vx': 100, 'temperature': self.t_max, 'pressure': 1e8, 'vy':100, 'vz': 100, 'liqlabel': 1 }
         self.field_min = {'vx': -100, 'temperature': self.t_min, 'pressure': 1e6, 'vy':-100, 'vz': -100, 'liqlabel': 0 }
 
+    @staticmethod
+    def _last_n_per_pv_indices(lr_paths, n):
+        """Return sorted array of indices keeping the last n paths per (power, velocity) group."""
+        groups = defaultdict(list)
+        for i, p in enumerate(lr_paths):
+            try:
+                power = int(str(p).split('power')[-1].split('velocity')[0])
+                vel   = int(str(p).split('velocity')[-1].split('_')[0].strip('/').strip('\\'))
+            except (ValueError, IndexError):
+                power, vel = 0, 0
+            groups[(power, vel)].append(i)
+        keep = []
+        for indices in groups.values():
+            keep.extend(indices[-n:])
+        return np.array(sorted(keep))
+
+    def _stats_dir(self):
+        suffix = '_sdf' if self.sdf_liqlabel else ''
+        return os.path.join(self.root_folder, 'statistics', self.downscale_method + suffix)
+
+    def _apply_sdf_to_channels(self, arr, num_fields):
+        """Apply SDF to the liqlabel channel in a (H, W, n_steps*num_fields) array."""
+        liq_ch = self.field_names.index('liqlabel')
+        for step in range(self.n_steps):
+            ch = step * num_fields + liq_ch
+            arr[:, :, ch] = self._signed_distance_from_liquid(arr[:, :, ch] > 0.5)
+        return arr
+
     def compute_statistics(self):
         test_hr_shape = list(np.load(self.hr_paths[0]).shape)
         test_lr_shape = list(np.load(self.lr_paths[0]).shape)
         test_hr_shape.insert(0, len(self.lr_paths))
         test_lr_shape.insert(0, len(self.lr_paths))
-        if self.split == 'train' and not os.path.exists(os.path.join(self.root_folder, 'statistics', self.downscale_method, 'flag')):
+        if self.split == 'train' and not os.path.exists(os.path.join(self._stats_dir(), 'flag')):
             all_residuals = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), test_hr_shape[0], ))
             all_hr =  np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
 
@@ -156,23 +207,29 @@ class SimulationXZDataset(Dataset):
             all_upscaled_lr = np.zeros(tuple(test_hr_shape)) # np.zeros((len(self.lr_paths), 80, 80))
 
             # print("Normalizing data...")
+            num_fields = len(self.field_names)
             for idx, (hr_path, lr_path, true_lr_path) in tqdm(enumerate(zip(self.hr_paths, self.upscaled_lr_paths, self.lr_paths)), total=len(self.lr_paths)):
-                hr_img = filter_data(np.load(hr_path), 
-                                        thresholds=self.field_threshold, 
-                                        field_idxs = self.field_idxs,
-                                        field_names = self.field_names)
+                hr_img = filter_data(np.load(hr_path),
+                                     thresholds=self.field_threshold,
+                                     field_idxs=self.field_idxs,
+                                     field_names=self.field_names)
+                lr_img = filter_data(np.load(lr_path), thresholds=self.field_threshold, field_idxs=self.field_idxs, field_names=self.field_names)
+                true_lr_img = filter_data(np.load(true_lr_path), thresholds=self.field_threshold, field_idxs=self.field_idxs, field_names=self.field_names)
 
-                
-                lr_img =  filter_data(np.load(lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
-
-                true_lr_img = filter_data(np.load(true_lr_path), thresholds=self.field_threshold, field_idxs = self.field_idxs, field_names = self.field_names)
+                if self.sdf_liqlabel:
+                    if len(hr_img.shape) < 3:
+                        hr_img = hr_img[:, :, None]
+                        lr_img = lr_img[:, :, None]
+                        true_lr_img = true_lr_img[:, :, None]
+                    hr_img      = self._apply_sdf_to_channels(hr_img,      num_fields)
+                    lr_img      = self._apply_sdf_to_channels(lr_img,      num_fields)
+                    true_lr_img = self._apply_sdf_to_channels(true_lr_img, num_fields)
 
                 all_residuals[idx] = (hr_img - lr_img)
                 all_lr[idx] = true_lr_img
                 all_hr[idx] = hr_img
                 all_upscaled_lr[idx] = lr_img
 
-            
             if len(all_lr.shape) > 3:
                 all_lr = np.moveaxis(all_lr, -1, 1)
                 all_hr = np.moveaxis(all_hr, -1, 1)
@@ -188,38 +245,23 @@ class SimulationXZDataset(Dataset):
             self.std_hr = np.std(all_hr, axis=0)
             self.mean_hr = np.mean(all_hr, axis=0)
 
-            self.stats_path = os.path.join(
-                self.root_folder, 'statistics', self.downscale_method)
-            
-
-            # Create the statistics directory
-            statistics_dir = os.path.join(self.root_folder, 'statistics', self.downscale_method)
+            statistics_dir = self._stats_dir()
             os.makedirs(statistics_dir, exist_ok=True)
+            self.stats_path = statistics_dir
 
-            # Data to save and corresponding filenames
-            data_to_save = {
-                'std_lr': self.std_lr,
-                'mean_lr': self.mean_lr,
-                'mean_resid': self.mean_resid,
-                'std_resid': self.std_resid,
-                'mean_hr': self.mean_hr,
-                'std_hr': self.std_hr,
-                'mean_upscaled_lr': self.mean_upscaled_lr,
-                'std_upscaled_lr': self.std_upscaled_lr
-            }
-
-            # Save each data array
-            for name, data in data_to_save.items():
+            for name, data in {
+                'std_lr': self.std_lr, 'mean_lr': self.mean_lr,
+                'mean_resid': self.mean_resid, 'std_resid': self.std_resid,
+                'mean_hr': self.mean_hr, 'std_hr': self.std_hr,
+                'mean_upscaled_lr': self.mean_upscaled_lr, 'std_upscaled_lr': self.std_upscaled_lr
+            }.items():
                 np.save(os.path.join(statistics_dir, name), data)
-
-            # Flag indicates that the statistics have been pre-computed
             np.savetxt(os.path.join(statistics_dir, 'flag'), np.array([0]))
 
-
-        elif not self.split == 'train' and not os.path.exists(os.path.join(self.root_folder, 'statistics', self.downscale_method, 'flag')):
+        elif not self.split == 'train' and not os.path.exists(os.path.join(self._stats_dir(), 'flag')):
             raise AttributeError('Initialize training set first')
         else:
-            self.stats_path = os.path.join(self.root_folder, 'statistics', self.downscale_method)
+            self.stats_path = self._stats_dir()
 
             # files to load and their corresponding attribute names
             stats_files = {
@@ -314,11 +356,16 @@ class SimulationXZDataset(Dataset):
                 true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] =self.baseline_lr #np.ones_like(single_true_lr)*293
                 upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.baseline_hr#np.ones_like(single_upscaled_lr)*293
 
+        if self.sdf_liqlabel:
+            hr          = self._apply_sdf_to_channels(hr,          num_fields)
+            upscaled_lr = self._apply_sdf_to_channels(upscaled_lr, num_fields)
+            true_lr     = self._apply_sdf_to_channels(true_lr,     num_fields)
+
         hr = np.moveaxis(hr, -1, 0)
         true_lr = np.moveaxis(true_lr, -1, 0)
         upscaled_lr = np.moveaxis(upscaled_lr, -1, 0)
-        residual = hr - upscaled_lr 
-        
+        residual = hr - upscaled_lr
+
         hr[hr > self.THRESHOLD_T] = self.THRESHOLD_T
         residual[residual > self.THRESHOLD_T] = self.THRESHOLD_T
         true_lr[true_lr > self.THRESHOLD_T] = self.THRESHOLD_T

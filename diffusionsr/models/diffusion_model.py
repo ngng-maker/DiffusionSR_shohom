@@ -220,7 +220,7 @@ class Unet(nn.Module):
         self.encoder_flag = encoder_flag
         init_dim = default(init_dim, 64)
         # init_dim = default(init_dim, dim // 3 * 2)
-        if self.conditioning == 'implicit':
+        if self.conditioning in ('implicit', 'none'):
             self.init_conv = nn.Conv2d(channels, init_dim, 7, padding=3)
         if self.conditioning == 'explicit':
             if not self.encoder_flag:
@@ -297,12 +297,15 @@ class Unet(nn.Module):
 
     def forward(self, x, time, x_e = None):
         x=x.float()
-        if self.conditioning == 'implicit':
+        if self.conditioning == 'none' or x_e is None:
+            x = self.init_conv(x)
+            x = self.mish(x)
+        elif self.conditioning == 'implicit':
             # breakpoint()
             x = self.init_conv(x)
             x = self.mish(x)
             # breakpoint()
-            x = x_e +x 
+            x = x_e +x
             # breakpoint()
         elif self.conditioning == 'explicit':
             x = torch.cat((x, x_e), dim = 1)

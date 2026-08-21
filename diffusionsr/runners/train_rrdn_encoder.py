@@ -9,13 +9,14 @@ import torch
 import torchsummary
 from diffusionsr.models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 import wandb
 def npl1loss(arr1, arr2):
     return (np.mean(np.abs(arr1 - arr2)))
 
-def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, config= None):
+def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, config=None,
+                     epoch_subsample_frac=None):
 
 
     wandb.init(
@@ -37,24 +38,49 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
     os.makedirs(results_dir, exist_ok = True)
     batch_size = 64
 
-    dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     device = 'cuda'
     criterion = torch.nn.L1Loss()
-    data_loader = dataloader
     learning_rate = 1e-4
     optimizer = torch.optim.Adam(lr_enc.parameters(), lr=learning_rate,weight_decay = 0)
-    temp_idx = train_dataset.field_names.index('temperature')
+    try:
+        temp_idx = train_dataset.field_names.index('temperature')
+    except ValueError:
+        temp_idx = 0
     min_test_loss = 1e10
     losses = []
     test_losses = []
     scaled_losses = []
     test_scaled_losses = []
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones = [75, 150, 225], gamma = 0.5)
-    for epoch in range(250):
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[75, 150, 225], gamma=0.5)
+
+    # Resume from epoch-level checkpoint if present (handles SLURM preemption + requeue)
+    start_epoch = 0
+    enc_ckpt_path = os.path.join(results_dir, 'encoder_ckpt.pth')
+    if os.path.exists(enc_ckpt_path):
+        enc_ckpt = torch.load(enc_ckpt_path, map_location='cpu')
+        lr_enc.load_state_dict(enc_ckpt['model_state_dict'])
+        optimizer.load_state_dict(enc_ckpt['optimizer_state_dict'])
+        scheduler.load_state_dict(enc_ckpt['scheduler_state_dict'])
+        start_epoch = enc_ckpt['epoch'] + 1
+        losses = enc_ckpt.get('losses', [])
+        test_losses = enc_ckpt.get('test_losses', [])
+        scaled_losses = enc_ckpt.get('scaled_losses', [])
+        test_scaled_losses = enc_ckpt.get('test_scaled_losses', [])
+        min_test_loss = enc_ckpt.get('min_test_loss', 1e10)
+        lr_enc.to(device)
+        print(f"Resuming encoder from epoch {start_epoch}")
+
+    for epoch in range(start_epoch, 250):
+        if epoch_subsample_frac is not None and epoch_subsample_frac < 1.0:
+            n_sub = max(batch_size, int(epoch_subsample_frac * len(train_dataset)))
+            sub_idx = torch.randperm(len(train_dataset))[:n_sub].tolist()
+            data_loader = DataLoader(Subset(train_dataset, sub_idx), batch_size=batch_size, shuffle=True, drop_last=True)
+        else:
+            data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+
         lr_enc.train()
 
         running_loss = 0
@@ -81,7 +107,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                 target = hr.to(device)
             output = lr_enc((img.float()))
             new_out = output
-            if data_loader.dataset.out_steps == 1 and data_loader.dataset.num_fields == 1:
+            if train_dataset.out_steps == 1 and train_dataset.num_fields == 1:
                 loss = criterion(output.float(), (target[:,-1:].float()))
             else:
                 print("Using multiple fields")
@@ -245,7 +271,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
 
             new_out = output
             
-            if data_loader.dataset.out_steps == 1 and data_loader.dataset.num_fields == 1:
+            if train_dataset.out_steps == 1 and train_dataset.num_fields == 1:
 
                 loss = criterion(output.float(), (target[:,-1:].float()))
                
@@ -364,6 +390,19 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                             'optimizer_state_dict': optimizer.state_dict(),
                             'loss': loss,
                             }, results_dir + '/bestmodel_saved.pth')
+
+        # Epoch-level restart checkpoint (survives SLURM preemption via --requeue)
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': lr_enc.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'losses': losses,
+            'test_losses': test_losses,
+            'scaled_losses': scaled_losses,
+            'test_scaled_losses': test_scaled_losses,
+            'min_test_loss': min_test_loss,
+        }, enc_ckpt_path)
         art = wandb.Artifact(f"{wandb.run.id}", type="model")
         art.add_file(os.path.join(results_dir + '/bestmodel_saved.pth'), "model.pt")
         wandb.log_artifact(art, aliases = ['latest_after_run'])

@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from diffusionsr.models.diffusion_model import Unet
 from diffusionsr.models.lr_encoder_model import rrdbnet_encoder
 from pylab import gca
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 from torch.optim.lr_scheduler import StepLR
 import wandb
@@ -161,11 +161,14 @@ class DiffusionModel():
                  timesteps=200,
                  conditioning='implicit',
                  encoding = True,
-                 schedule='linear',             
-                 device = 'cuda', 
+                 schedule='linear',
+                 device = 'cuda',
                  enc_output = True,
                  out_steps = None,
-                 transform_rescale = False
+                 transform_rescale = False,
+                 channels_override = None,
+                 image_size_override = None,
+                 epoch_subsample_frac = None,
                  ):
 
         self.results_folder = results_folder
@@ -179,12 +182,14 @@ class DiffusionModel():
         self.conditioning = conditioning
         self.schedule = schedule
         self.enc_output = enc_output
-        self.image_size = self.train_dataset.img_shape
+        self.image_size = image_size_override if image_size_override is not None else self.train_dataset.img_shape
         self.device = device
         torch.manual_seed(0)
         self.results_folder = Path(self.results_folder)
         self.results_folder.mkdir(parents=True, exist_ok=True)
-        if out_steps is None:
+        if channels_override is not None:
+            self.channels = channels_override
+        elif out_steps is None:
             self.channels = self.train_dataset.n_steps*self.train_dataset.num_fields
         else:
             self.channels = out_steps
@@ -211,6 +216,7 @@ class DiffusionModel():
         self.model.to(self.device)
 
        
+        self.epoch_subsample_frac = epoch_subsample_frac
         self.save_prefix = ''
     def load_saved_model(self):
         print(f"Loading model from {self.results_folder}")
@@ -284,6 +290,22 @@ class DiffusionModel():
             raise NotImplementedError()
 
         return loss
+
+    def compute_x_e(self, true_lr, upscaled_lr):
+        """Return the conditioning tensor from LR input. Override in subclasses."""
+        if self.encoding:
+            return forwardpass(self.lr_enc, true_lr.to(self.device).float(),
+                               factor=self.train_dataset.factor, output=self.enc_output,
+                               transform_rescale=self.transform_rescale,
+                               dataset=self.train_dataset)
+        elif self.conditioning == 'none':
+            return None
+        else:
+            return upscaled_lr.to(self.device).float()
+
+    def prepare_batch(self, batch):
+        """Return the batch tensor to use for loss computation. Override in subclasses."""
+        return batch
 
     def initialize_encoder(self):
         '''
@@ -377,7 +399,8 @@ class DiffusionModel():
         try:
             temp_idx = dataset.field_names.index(plotting_field)
         except ValueError:
-            raise ValueError(f"Plotting field '{plotting_field}' not found in dataset.field_names")
+            temp_idx = 0
+            plotting_field = dataset.field_names[0]
 
         # Define a helper function for plotting
         def plot_and_log(image_data, title, filename_suffix):
@@ -420,7 +443,11 @@ class DiffusionModel():
             epoch,
             step,
         ]
-        temp_idx = dataset.field_names.index(plotting_field)
+        try:
+            temp_idx = dataset.field_names.index(plotting_field)
+        except ValueError:
+            temp_idx = 0
+            plotting_field = dataset.field_names[0]
 
         torch.save(states, os.path.join(self.results_folder, "ckpt.pth"))
         plt.imshow(dataset.unscale_data(all_images.numpy(
@@ -636,9 +663,10 @@ class DiffusionModel():
         elif split == 'validation':
             dataset = self.dev_dataset
 
-        all_images = self.batch_sample(dataset, batch[:2], x_e[:2])
+        all_images = self.batch_sample(dataset, batch[:2], x_e[:2] if x_e is not None else None)
         self.save(split, all_images, epoch = epoch, step = step , res =res, hr = hr, true_lr = true_lr, upscaled_lr = upscaled_lr)
-        print(hr.min(), hr.max(), true_lr.min(), true_lr.max(), x_e.min(), x_e.max(), all_images[-1].min(), all_images[-1].max())
+        x_e_str = f'{x_e.min():.3f} {x_e.max():.3f}' if x_e is not None else 'None'
+        print(hr.min(), hr.max(), true_lr.min(), true_lr.max(), x_e_str, all_images[-1].min(), all_images[-1].max())
   
     def train(self,
               epochs,
@@ -676,9 +704,6 @@ class DiffusionModel():
         else:
             self.start_epoch = 0
         
-        # self.model = nn.DataParallel(self.model)
-        self.train_loader = DataLoader(
-            self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
         self.dev_loader = DataLoader(
             self.dev_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
 
@@ -688,6 +713,15 @@ class DiffusionModel():
         unaveraged_test_losses = []
 
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
+            # Resample a random subset of the training set each epoch
+            if self.epoch_subsample_frac is not None and self.epoch_subsample_frac < 1.0:
+                n_sub = max(self.batch_size, int(self.epoch_subsample_frac * len(self.train_dataset)))
+                sub_idx = torch.randperm(len(self.train_dataset))[:n_sub].tolist()
+                self.train_loader = DataLoader(
+                    Subset(self.train_dataset, sub_idx), batch_size=self.batch_size, shuffle=True, drop_last=True)
+            else:
+                self.train_loader = DataLoader(
+                    self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
             losses = []
             
             self.model.train()
@@ -710,18 +744,15 @@ class DiffusionModel():
                         true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(self.device).float()
                 
                 self.optimizer.zero_grad()
-                if self.encoding:
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(), factor = self.train_dataset.factor, output = self.enc_output,transform_rescale=self.transform_rescale, dataset = self.train_loader.dataset)
-                else:
-                    x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
-                
-                
+                x_e = self.compute_x_e(true_lr, upscaled_lr)
+                batch_for_loss = self.prepare_batch(batch)
+
                 # Sample a timestep
-                t = torch.randint(0, self.timesteps, (batch.shape[0],),
+                t = torch.randint(0, self.timesteps, (batch_for_loss.shape[0],),
                                 device=self.device).long()
-                
+
                 # Calculate loss
-                loss = self.p_losses(self.model, batch, t, loss_type=self.loss_type, x_e=x_e)
+                loss = self.p_losses(self.model, batch_for_loss, t, loss_type=self.loss_type, x_e=x_e)
 
                 losses.append(loss.item())
                 loss.backward()
@@ -749,12 +780,8 @@ class DiffusionModel():
                 if len(true_lr.shape) < 4:
                     true_lr = true_lr.view(
                         true_lr.shape[0], 1, true_lr.shape[1], true_lr.shape[2]).to(self.device).float()
-                if self.encoding:
-                    
-                    x_e = forwardpass(self.lr_enc, true_lr.to(self.device).float(),  factor = self.train_dataset.factor, output = self.enc_output,transform_rescale=self.transform_rescale, dataset = self.train_loader.dataset)
-                else:
-                    x_e = upscaled_lr.to(self.device).float().repeat(1,1,1, 1)
-                
+                x_e = self.compute_x_e(true_lr, upscaled_lr)
+
                 num_batch = batch.shape[0]
                 len_batch = batch.shape[1]
                 width_batch = batch.shape[2]
@@ -763,11 +790,12 @@ class DiffusionModel():
                         batch, (num_batch, 1, len_batch, width_batch))
 
                 batch = batch.to(self.device)
+                batch_for_loss = self.prepare_batch(batch)
 
                 # Algorithm 1 line 3: sample t uniformly for every example in the batch
-                t = torch.randint(0, self.timesteps, (batch.shape[0],), # look into this
+                t = torch.randint(0, self.timesteps, (batch_for_loss.shape[0],),
                                 device=self.device).long()
-                loss = self.p_losses(self.model, batch, t, loss_type=self.loss_type, x_e=x_e)
+                loss = self.p_losses(self.model, batch_for_loss, t, loss_type=self.loss_type, x_e=x_e)
                 test_losses.append(loss.item())
 
             test_mean_loss = np.mean(test_losses)
@@ -780,6 +808,7 @@ class DiffusionModel():
                                     "validation_loss_iterations.txt"), unaveraged_test_losses)
             print("Epoch: {}, Average Train Loss: {:.04}, Average Test Loss: {:.04}".format(
                 epoch, mean_loss, test_mean_loss))
+            wandb.log({'train_loss': mean_loss, 'val_loss': test_mean_loss}, step=epoch)
 
             if epoch % 2 == 0:
                   self.sample_and_save(batch, res, hr, true_lr, upscaled_lr, x_e, step, epoch, split = 'validation')
