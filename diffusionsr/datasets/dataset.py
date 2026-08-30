@@ -425,9 +425,9 @@ class SimulationXZDataset(Dataset):
                 else:
                     raise Exception(f'Input type not found {input_type}')
                 if torch.is_tensor(array) and maintain_torch:
-                    mean = torch.Tensor(mean).to('cuda').float()
+                    mean = torch.Tensor(mean).to(array.device).float()
 
-                    std = torch.Tensor(std).to('cuda').float()
+                    std = torch.Tensor(std).to(array.device).float()
                 elif torch.is_tensor(array):
                     array = array.cpu().detach().numpy()
                 unscaledarray = array*std + mean
@@ -471,8 +471,8 @@ class SimulationXZDataset(Dataset):
             else:
                 raise NotImplementedError
             if maintain_torch:
-                mean = torch.tensor(mean).to('cuda')
-                std = torch.tensor(std).to('cuda')
+                mean = torch.tensor(mean).to(array.device)
+                std = torch.tensor(std).to(array.device)
             scaled_array = (array - mean)/(std)
             
             return scaled_array

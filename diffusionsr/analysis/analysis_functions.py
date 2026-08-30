@@ -249,7 +249,7 @@ def predict_ddim_diffusion(model, lr_enc, res, hr, lr, upscaled_lr, dataset, seq
             next_t = (torch.ones(n) * j).to(x.device)
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
-            xt = xs[-1].to('cuda')
+            xt = xs[-1].to(device)
             et = model(x, t, x_e)#model(xt, t)
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
             x0_preds.append(x0_t.to('cpu'))

@@ -620,7 +620,7 @@ class DiffusionModel():
                     next_t = (torch.ones(n) * j).to(x.device)
                     at = self.ddim_compute_alpha(self.betas, t.long())
                     at_next = self.ddim_compute_alpha(self.betas, next_t.long())
-                    xt = xs[-1].to('cuda')
+                    xt = xs[-1].to(self.device)
                     et = self.model(xt, t, x_e)
                     x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
                     x0_preds.append(x0_t.to('cpu'))

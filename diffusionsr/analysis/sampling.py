@@ -48,7 +48,7 @@ def predict_streamlined_ddim_diffusion(model,  hr, lr, x_e, dataset, timesteps =
             next_t = (torch.ones(n) * j).to(x.device)
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
-            xt = xs[-1].to('cuda')
+            xt = xs[-1].to(device)
             model.to(device)
             et = model(xt, t, x_e)
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
