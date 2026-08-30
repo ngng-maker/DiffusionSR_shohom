@@ -622,15 +622,19 @@ def load_diffusion(diffusion_results_dir, dataset, conditioning = 'implicit', en
     for param in model.parameters():
         param.requires_grad = False
     return model
-def load_encoder(encoder_results_dir, dataset):
-    device = 'cuda'
+def load_encoder(encoder_results_dir, dataset, device=None):
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
     lr_enc  = rrdbnet_encoder(upscale_factor = dataset.factor, in_channels = dataset.n_steps*dataset.num_fields, out_channels = dataset.out_steps*dataset.num_fields)
     # lr_enc = rrdbnet_x4(upscale_factor = 4, num_blocks = 8)
 
     lr_enc.to(device)
     lr_encoptimizer = torch.optim.Adam(lr_enc.parameters())
-    lrenc_fname = os.path.join(encoder_results_dir, 'model_saved.pth')
-    lrenc_checkpoint = torch.load(lrenc_fname)
+    # Try bestmodel first, fall back to model_saved
+    lrenc_fname = os.path.join(encoder_results_dir, 'bestmodel_saved.pth')
+    if not os.path.exists(lrenc_fname):
+        lrenc_fname = os.path.join(encoder_results_dir, 'model_saved.pth')
+    lrenc_checkpoint = torch.load(lrenc_fname, map_location=device)
     lr_enc.load_state_dict(lrenc_checkpoint['model_state_dict'])
     lr_encoptimizer.load_state_dict(lrenc_checkpoint['optimizer_state_dict'])
     lr_enc.eval()

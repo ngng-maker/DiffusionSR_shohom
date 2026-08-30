@@ -50,7 +50,7 @@ class SimulationXZDataset(Dataset):
         elif 'ss316l' in self.root_folder:
             all_field_names = {'temperature':0, 'liqlabel':1}
         else:
-            all_field_names = {'temperature':0}
+            all_field_names = {'temperature':0, 'liqlabel':1}
 
 
 
