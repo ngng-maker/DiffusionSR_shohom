@@ -201,7 +201,7 @@ class DiffusionModel():
             # breakpoint()
         if os.path.exists(os.path.join(self.results_folder, 'ckpt.pth')):
             print("model found, loading")
-            checkpoint = torch.load(os.path.join(self.results_folder, 'ckpt.pth'))
+            checkpoint = torch.load(os.path.join(self.results_folder, 'ckpt.pth'), map_location=self.device)
             self.model.load_state_dict(checkpoint[0])
             self.optimizer = Adam(self.model.parameters())
             self.optimizer.load_state_dict(checkpoint[1])
@@ -296,8 +296,10 @@ class DiffusionModel():
         # Optimizer is reinitialized here to make sure outputs are reproducible, encoder is not trained
         lr_encoptimizer = torch.optim.Adam(
         lr_enc.parameters(), weight_decay=0)
-        lrenc_fname = os.path.join(self.lr_encoder_folder, 'model_saved.pth')
-        lrenc_checkpoint = torch.load(lrenc_fname)
+        lrenc_fname = os.path.join(self.lr_encoder_folder, 'bestmodel_saved.pth')
+        if not os.path.exists(lrenc_fname):
+            lrenc_fname = os.path.join(self.lr_encoder_folder, 'model_saved.pth')
+        lrenc_checkpoint = torch.load(lrenc_fname, map_location=self.device)
         lr_enc.load_state_dict(lrenc_checkpoint['model_state_dict'])
         lr_encoptimizer.load_state_dict(lrenc_checkpoint['optimizer_state_dict'])
         lr_enc.eval()
@@ -668,7 +670,7 @@ class DiffusionModel():
         self.epochs = epochs
         if restart:
             print("Resuming training...")
-            checkpoint = torch.load(os.path.join(self.restart_dir, 'ckpt.pth'))
+            checkpoint = torch.load(os.path.join(self.restart_dir, 'ckpt.pth'), map_location=self.device)
             state_dict = remove_module_prefix(checkpoint[0])
             try:
                 self.model.load_state_dict(checkpoint[0])
