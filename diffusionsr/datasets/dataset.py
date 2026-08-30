@@ -144,8 +144,13 @@ class SimulationXZDataset(Dataset):
                                     np.ones(test_lr_shape[:-1])*0,
                                     np.ones(test_lr_shape[:-1])*0])
         else:
-            self.baseline_hr  = np.dstack([np.ones(test_hr_shape)*293])
-            self.baseline_lr = np.dstack([np.ones(test_lr_shape)*293])
+            # Build per-selected-field baseline with the right spatial shape.
+            # Raw files may have more channels than we select, so use spatial dims only.
+            _hr_2d = test_hr_shape[:-1] if len(test_hr_shape) >= 3 else test_hr_shape
+            _lr_2d = test_lr_shape[:-1] if len(test_lr_shape) >= 3 else test_lr_shape
+            _bvals = {'temperature': 293.0, 'liqlabel': 0.0}
+            self.baseline_hr = np.dstack([np.ones(_hr_2d) * _bvals.get(f, 0.0) for f in self.field_names])
+            self.baseline_lr = np.dstack([np.ones(_lr_2d) * _bvals.get(f, 0.0) for f in self.field_names])
 
 
         self.img_shape = int(test_hr_shape[0])
