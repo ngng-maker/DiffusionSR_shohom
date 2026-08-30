@@ -104,14 +104,17 @@ class FlowMatchingModel(DiffusionModel):
     def batch_sample(self, dataset, batch, x_e, sampler='euler', n_steps=100, **kwargs):
         # Mirrors DiffusionModel.batch_sample's signature/dispatch shape (dataset, batch, x_e,
         # sampler=..., **kwargs) so analysis-layer callers can treat FlowMatchingModel and
-        # DiffusionModel instances interchangeably wherever only .batch_sample(...) is called
-        # (e.g. sample_and_save, inherited unchanged from DiffusionModel).
+        # DiffusionModel instances interchangeably wherever only .batch_sample(...) is called.
         if sampler != 'euler':
             raise NotImplementedError(f"FlowMatchingModel only supports the euler sampler, got {sampler}")
-        batch_size = 2
-        batches = num_to_groups(1, batch_size)
-        all_images_list = list(map(
-            lambda n: self.sample(self.model, x_e=x_e, image_size=dataset.img_shape,
-                                  n_steps=n_steps, batch_size=batch_size, channels=self.channels),
-            batches))[0]
-        return torch.stack(all_images_list, dim=0)
+        # Derive batch size from the actual batch so x and x_e shapes agree in euler_sample.
+        if batch is not None:
+            actual_bs = batch.shape[0]
+        elif x_e is not None:
+            actual_bs = x_e.shape[0]
+        else:
+            actual_bs = 1
+        imgs = self.euler_sample(self.model, x_e=x_e,
+                                 shape=(actual_bs, self.channels, dataset.img_shape, dataset.img_shape),
+                                 n_steps=n_steps)
+        return torch.stack(imgs, dim=0)
