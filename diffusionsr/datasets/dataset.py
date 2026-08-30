@@ -107,18 +107,16 @@ class SimulationXZDataset(Dataset):
         test_lr_shape = list(np.load(self.lr_paths[0]).shape)
         self.factor = int(test_hr_shape[0]/test_lr_shape[0])
         self.num_fields_in_file = test_hr_shape[-1] if len(test_hr_shape) >= 3 else 1
-        self.field_idxs_steps = []
-        for i in range(self.n_steps):
-            for j in self.field_idxs:
-                self.field_idxs_steps.append(self.num_fields_in_file * i + j)
+        # field_idxs_steps indexes into the filter_data-reduced array (num_fields per step),
+        # so the stride is num_fields, not num_fields_in_file.
+        self.field_idxs_steps = list(range(self.n_steps * self.num_fields))
         print("Downscale factor: ", self.factor)
 
 
         self.num_fields_in_file = test_hr_shape[-1] if len(test_hr_shape) >= 3 else 1
-        self.field_idxs_steps = []
-        for i in range(self.n_steps):
-            for j in self.field_idxs:
-                self.field_idxs_steps.append(self.num_fields_in_file * i + j)
+        # field_idxs_steps indexes into the filter_data-reduced array (num_fields per step),
+        # so the stride is num_fields, not num_fields_in_file.
+        self.field_idxs_steps = list(range(self.n_steps * self.num_fields))
 
 
 
@@ -258,6 +256,14 @@ class SimulationXZDataset(Dataset):
             # load each file and assign it to the corresponding attribute
             for file_name, attr_name in stats_files.items():
                 setattr(self, attr_name, np.load(os.path.join(self.stats_path, f'{file_name}.npy')))
+
+            # Subset stats to the selected fields if the cache was computed with more fields.
+            # Stats shape is (C, H, W); select field_idxs rows so it matches filter_data output.
+            for attr in ['std_lr','mean_lr','std_resid','mean_resid',
+                         'std_hr','mean_hr','std_upscaled_lr','mean_upscaled_lr']:
+                stat = getattr(self, attr)
+                if stat.ndim == 3 and stat.shape[0] > self.num_fields:
+                    setattr(self, attr, stat[self.field_idxs])
 
         self.std_lr[self.std_lr == 0] = 1
         self.std_hr[self.std_hr == 0] = 1
