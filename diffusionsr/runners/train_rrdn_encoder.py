@@ -19,11 +19,13 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                      epoch_subsample_frac=None):
 
 
+    from diffusionsr.utils import make_run_name, upload_checkpoint_artifact
     wandb.init(
         project="RRDN_Encoder",
         entity=os.getenv("WANDB_ENTITY"),
+        name=make_run_name('encoder'),
+        group='encoder',
         config=config,
-        mode = 'disabled'# if config['data']['debug'] else 'online'
     )
 
     print("Now training encoder...")
@@ -388,12 +390,14 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
         np.savetxt(results_dir + '/scaled_test_loss.txt', test_scaled_losses)
         if testrunning_loss < min_test_loss:
             min_test_loss = testrunning_loss
+            best_path = results_dir + '/bestmodel_saved.pth'
             torch.save({
-                            'epoch': epoch,
-                            'model_state_dict': lr_enc.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'loss': loss,
-                            }, results_dir + '/bestmodel_saved.pth')
+                'epoch': epoch,
+                'model_state_dict': lr_enc.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+            }, best_path)
+            upload_checkpoint_artifact(best_path, wandb.run.name, epoch, is_best=True)
 
         # Epoch-level restart checkpoint (survives SLURM preemption via --requeue)
         torch.save({
@@ -407,8 +411,15 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             'test_scaled_losses': test_scaled_losses,
             'min_test_loss': min_test_loss,
         }, enc_ckpt_path)
-        art = wandb.Artifact(f"{wandb.run.id}", type="model")
-        art.add_file(os.path.join(results_dir + '/bestmodel_saved.pth'), "model.pt")
-        wandb.log_artifact(art, aliases = ['latest_after_run'])
-        print("HERE: trying to finish run and sync")
+        upload_checkpoint_artifact(enc_ckpt_path, wandb.run.name, epoch, is_best=False)
+
+    # Upload loss curves to W&B at the end of encoder training.
+    try:
+        from diffusionsr.runners.plot_training_curves import plot_curves
+        curves_png = os.path.join(results_dir, "loss_curves.png")
+        plot_curves(results_dir, out_path=curves_png)
+        if os.path.exists(curves_png):
+            wandb.log({"loss_curves": wandb.Image(curves_png)})
+    except Exception as _e:
+        print(f"Loss-curve plot skipped: {_e}")
     wandb.finish()

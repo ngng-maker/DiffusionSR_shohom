@@ -14,6 +14,7 @@ from diffusionsr.utils import (
     linear_beta_schedule,
     quadratic_beta_schedule,
     sigmoid_beta_schedule,
+    upload_checkpoint_artifact,
 )
 from pylab import gca
 from torch.utils.data import DataLoader, Subset
@@ -689,6 +690,7 @@ class DiffusionModel():
         unaveraged_train_losses = []
         all_test_losses = []
         unaveraged_test_losses = []
+        best_val_loss = float('inf')
 
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
             # Resample a random subset of the training set each epoch
@@ -786,9 +788,30 @@ class DiffusionModel():
                                     "validation_loss_iterations.txt"), unaveraged_test_losses)
             print("Epoch: {}, Average Train Loss: {:.04}, Average Test Loss: {:.04}".format(
                 epoch, mean_loss, test_mean_loss))
-            wandb.log({'train_loss': mean_loss, 'val_loss': test_mean_loss}, step=epoch)
+            _wb_step = epoch + getattr(self, '_wandb_step_offset', 0)
+            wandb.log({'train_loss': mean_loss, 'val_loss': test_mean_loss}, step=_wb_step)
+
+            # Save checkpoint every epoch so SLURM preemption/requeue can restore it.
+            states = [self.model.state_dict(), self.optimizer.state_dict(), epoch, step]
+            ckpt_path = os.path.join(self.results_folder, "ckpt.pth")
+            torch.save(states, ckpt_path)
+            is_best = test_mean_loss < best_val_loss
+            if is_best:
+                best_val_loss = test_mean_loss
+                torch.save(states, os.path.join(self.results_folder, "bestmodel_saved.pth"))
+            _run_name = wandb.run.name if wandb.run is not None else "run"
+            upload_checkpoint_artifact(ckpt_path, _run_name, epoch, is_best=is_best)
 
             if epoch % 2 == 0:
                   self.sample_and_save(batch, res, hr, true_lr, upscaled_lr, x_e, step, epoch, split = 'validation')
 
+        # After training: generate and upload loss curves to W&B.
+        try:
+            from diffusionsr.runners.plot_training_curves import plot_curves
+            curves_png = os.path.join(self.results_folder, "loss_curves.png")
+            plot_curves(self.results_folder, out_path=curves_png)
+            if wandb.run is not None and os.path.exists(curves_png):
+                wandb.log({"loss_curves": wandb.Image(curves_png)})
+        except Exception as _e:
+            print(f"Loss-curve plot skipped: {_e}")
 

@@ -24,6 +24,7 @@ import wandb
 
 from diffusionsr.models.vae_model import VAE2D, vae_loss
 from diffusionsr.runners.train_diffusion import DiffusionModel, forwardpass
+from diffusionsr.utils import upload_checkpoint_artifact
 
 LATENT_CH = 4  # latent channels; must match VAE latent_channels
 _VAE_CHANNEL_MULTS = (1, 2)  # two stride-2 stages → 4x spatial reduction, same as original KLVAE
@@ -45,7 +46,7 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
 
     if (results_dir / 'vae_best.pth').exists():
         print(f"VAE already trained at {results_dir} — skipping.")
-        return
+        return 0
 
     in_ch = train_dataset.n_steps * train_dataset.num_fields
     vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
@@ -106,7 +107,11 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
 
         if val_mean < best_val:
             best_val = val_mean
-            torch.save(vae.state_dict(), results_dir / 'vae_best.pth')
+            best_path = results_dir / 'vae_best.pth'
+            torch.save(vae.state_dict(), best_path)
+            if wandb.run is not None:
+                upload_checkpoint_artifact(str(best_path), wandb.run.name + '_vae',
+                                           epoch, is_best=True)
 
         torch.save({
             'epoch': epoch,
@@ -116,6 +121,11 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
             'train_losses': train_losses,
             'val_losses': val_losses,
         }, ckpt_path)
+        if wandb.run is not None:
+            upload_checkpoint_artifact(str(ckpt_path), wandb.run.name + '_vae',
+                                       epoch, is_best=False)
+
+    return num_epochs
 
 
 # ── LDMModel ──────────────────────────────────────────────────────────────────

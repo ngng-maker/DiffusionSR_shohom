@@ -11,7 +11,8 @@ from torch.utils.data import DataLoader
 from diffusionsr.runners.train_diffusion import DiffusionModel
 from diffusionsr.runners.train_mobilenet import train_mobilenet
 from diffusionsr.runners.train_rrdn_encoder import pretrain_encoder
-from diffusionsr.utils import dict2namespace, config_to_field_names
+from diffusionsr.utils import (dict2namespace, config_to_field_names,
+                               make_run_name, restore_checkpoint_from_wandb as _restore_ckpt)
 import wandb
 
 def parse_args_and_config():
@@ -31,6 +32,11 @@ def parse_args_and_config():
     parser.add_argument('--force_run_dir', type=str, default='',
                         help="Fixed diffusion results dir (overrides datetime-based naming). "
                              "If ckpt.pth exists here, training is automatically resumed.")
+    parser.add_argument('--wandb_run_name', type=str, default='',
+                        help="Override auto-generated W&B run name (D_Mon_YYYY_<model>_<downscale>)")
+    parser.add_argument('--resume_from_wandb', type=str, default='',
+                        help="W&B run name to restore 'latest' checkpoint artifact from "
+                             "(used when local ckpt.pth is absent after SLURM preemption)")
     args = parser.parse_args()
 
     # Support absolute paths, cwd-relative paths (e.g. configs/multifield/...),
@@ -75,6 +81,15 @@ else:
     diffusion_run_dir_fixed = None
     restart = False
     restart_dir = ''
+
+# W&B artifact fallback: if --force_run_dir set but ckpt.pth is missing (SLURM scratch cleared),
+# try to pull the latest checkpoint from W&B before continuing.
+if args.force_run_dir and args.resume_from_wandb and not restart:
+    _wandb_entity = os.getenv("WANDB_ENTITY", "")
+    if _restore_ckpt(_wandb_entity, "Flow3D_SuperResolution",
+                     args.resume_from_wandb, args.force_run_dir):
+        restart = True
+        restart_dir = args.force_run_dir
 
 use_pretrained = new_config.use_pretrained
 if use_pretrained and not args.force_enc_dir:
@@ -127,6 +142,31 @@ datetime_string = now.strftime("%Y_%m_%d_%H_%M_%S")
 print(datetime_string)
 
 residual_tag = 'residual' if residual_flag else ''
+
+# ── W&B run naming ─────────────────────────────────────────────────────────────
+_MODEL_LABELS = {
+    'diffusion':        'diffusion_sr',
+    'flow_matching':    'flow_matching',
+    'uncond_diffusion': 'uncond_diffusion',
+    'ldm':              'latent_diffusion',
+    'encoder':          'encoder',
+    'mobilenet':        'mobilenet',
+}
+
+
+def _init_wandb():
+    """Init W&B with a structured run name, group, and tags. Returns the run name string."""
+    label = _MODEL_LABELS.get(modeltype, modeltype)
+    run_name = args.wandb_run_name or make_run_name(label, suffix=downscale_method)
+    wandb.init(
+        project="Flow3D_SuperResolution",
+        entity=os.getenv("WANDB_ENTITY"),
+        name=run_name,
+        group=label,
+        tags=[label, downscale_method, conditioning],
+        config=combined_dict,
+    )
+    return run_name
 
 
 # ── MOBILENET ─────────────────────────────────────────────────────────────────
@@ -193,8 +233,7 @@ if modeltype == 'diffusion':
             f.write(f'Restarted from ckpt.pth')
 
     print("Training DiffusionSR...")
-    wandb.init(project="Flow3D_SuperResolution", entity=os.getenv("WANDB_ENTITY"),
-               config=combined_dict)
+    _init_wandb()
 
     diffusion_model = DiffusionModel(
         results_folder=diffusion_results_dir,
@@ -248,8 +287,7 @@ if modeltype == 'flow_matching':
                 os.path.join(diffusion_results_dir, 'configuration.yml'))
 
     print("Training Flow Matching...")
-    wandb.init(project="Flow3D_SuperResolution", entity=os.getenv("WANDB_ENTITY"),
-               config=combined_dict)
+    _init_wandb()
 
     fm_model = FlowMatchingModel(
         results_folder=diffusion_results_dir,
@@ -286,8 +324,7 @@ if modeltype == 'uncond_diffusion':
                 os.path.join(diffusion_results_dir, 'configuration.yml'))
 
     print("Training Unconditional Diffusion...")
-    wandb.init(project="Flow3D_SuperResolution", entity=os.getenv("WANDB_ENTITY"),
-               config=combined_dict)
+    _init_wandb()
 
     uncond_model = DiffusionModel(
         results_folder=diffusion_results_dir,
@@ -356,13 +393,12 @@ if modeltype == 'ldm':
                 os.path.join(diffusion_results_dir, 'configuration.yml'))
 
     print("Training Latent Diffusion Model...")
-    wandb.init(project="Flow3D_SuperResolution", entity=os.getenv("WANDB_ENTITY"),
-               config=combined_dict)
+    _init_wandb()
 
     os.makedirs(vae_results_dir, exist_ok=True)
-    pretrain_vae(vae_results_dir, train_dataset=train_dataset,
-                 dev_dataset=dev_dataset, test_dataset=test_dataset,
-                 num_epochs=vae_epochs)
+    vae_n_epochs = pretrain_vae(vae_results_dir, train_dataset=train_dataset,
+                                dev_dataset=dev_dataset, test_dataset=test_dataset,
+                                num_epochs=vae_epochs)
 
     ldm_model = LDMModel(
         vae_folder=vae_results_dir,
@@ -379,6 +415,9 @@ if modeltype == 'ldm':
         enc_output=enc_output,
         out_steps=out_steps,
     )
+    # Offset DDPM W&B step counter by the number of VAE epochs so the two
+    # training phases don't overlap on the same x-axis.
+    ldm_model._wandb_step_offset = vae_n_epochs or 0
     ldm_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                     batch_size=batch_size, learning_rate=learning_rate,
                     loss_type=loss_type)

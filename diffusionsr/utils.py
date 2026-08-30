@@ -1,4 +1,5 @@
 import argparse
+from datetime import date
 from pathlib import Path
 from typing import List, Optional
 
@@ -95,3 +96,64 @@ def relocate_config_paths(config):
             config[key] = str(PACKAGE_DIR / s[i:])
 
     return config
+
+
+# ── W&B run naming and checkpoint helpers ─────────────────────────────────────
+
+def make_run_name(model_type: str, suffix: str = "") -> str:
+    """Return a W&B run name in the format D_Mon_YYYY_<model_type>[_suffix].
+
+    Example: make_run_name('latent_diffusion', 'direct') → '1_Aug_2026_latent_diffusion_direct'
+    """
+    today = date.today()
+    name = f"{today.day}_{today.strftime('%b')}_{today.year}_{model_type}"
+    if suffix:
+        name += f"_{suffix}"
+    return name
+
+
+def upload_checkpoint_artifact(ckpt_path: str, run_name: str, epoch: int,
+                                is_best: bool = False) -> None:
+    """Upload a checkpoint file to W&B as a versioned artifact.
+
+    The artifact is named ``{run_name}_ckpt`` (type ``checkpoint``) with
+    aliases ``['latest', 'epoch_{epoch}']`` (plus ``'best'`` when is_best).
+    No-op if ``wandb.run`` is None (W&B disabled or not initialised yet).
+    """
+    import wandb  # local import so utils stays importable without W&B installed
+    if wandb.run is None:
+        return
+    art = wandb.Artifact(
+        name=f"{run_name}_ckpt",
+        type="checkpoint",
+        metadata={"epoch": epoch},
+    )
+    art.add_file(str(ckpt_path), name="ckpt.pth")
+    aliases = ["latest", f"epoch_{epoch}"]
+    if is_best:
+        aliases.append("best")
+    wandb.run.log_artifact(art, aliases=aliases)
+
+
+def restore_checkpoint_from_wandb(entity: str, project: str, run_name: str,
+                                    local_dir: str, alias: str = "latest") -> bool:
+    """Download a W&B checkpoint artifact to ``local_dir/ckpt.pth``.
+
+    Returns True if the download succeeded and the file exists, False otherwise.
+    Intended as a fallback when the local checkpoint is absent after SLURM
+    preemption cleared the scratch filesystem.
+    """
+    import wandb
+    api = wandb.Api()
+    artifact_id = f"{entity}/{project}/{run_name}_ckpt:{alias}"
+    try:
+        artifact = api.artifact(artifact_id)
+        artifact.download(root=local_dir)
+        ckpt = Path(local_dir) / "ckpt.pth"
+        if ckpt.exists():
+            print(f"Restored checkpoint from W&B: {artifact_id} → {ckpt}")
+            return True
+        return False
+    except Exception as e:
+        print(f"W&B checkpoint restore failed ({artifact_id}): {e}")
+        return False
