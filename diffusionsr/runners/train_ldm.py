@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 import wandb
 
-from diffusionsr.models.vae_model import VAE2D, vae_loss
+from diffusionsr.models.vae_model import VAE2D, KLVAE, vae_loss
 from diffusionsr.runners.train_diffusion import DiffusionModel, forwardpass
 from diffusionsr.utils import upload_checkpoint_artifact
 
@@ -156,10 +156,15 @@ class LDMModel(DiffusionModel):
 
     def _load_vae(self, vae_folder):
         in_ch = self.train_dataset.n_steps * self.train_dataset.num_fields
-        vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
-                    channel_multipliers=_VAE_CHANNEL_MULTS).to(self.device)
         vae_path = os.path.join(vae_folder, 'vae_best.pth')
         state = torch.load(vae_path, map_location=self.device)
+        # Detect checkpoint architecture by key prefix.
+        # KLVAE checkpoints have 'encoder.net.0.weight'; VAE2D checkpoints have 'encoder.0.block.0.weight'.
+        if 'encoder.net.0.weight' in state:
+            vae = KLVAE(in_channels=in_ch, base_ch=64, latent_ch=LATENT_CH).to(self.device)
+        else:
+            vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
+                        channel_multipliers=_VAE_CHANNEL_MULTS).to(self.device)
         vae.load_state_dict(state)
         vae.eval()
         for p in vae.parameters():

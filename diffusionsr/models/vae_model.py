@@ -526,12 +526,134 @@ def vae_loss(
 ConvVAE2D = VAE2D
 ConvVAE3D = VAE3D
 
+
+# ── Legacy KLVAE (used by TRACE-trained checkpoints) ─────────────────────────
+# Trained with the old diffusionsr/models/vae.py (deleted in repo cleanup).
+# Kept here so existing vae_best.pth checkpoints can still be loaded.
+
+def _gn(ch):
+    return nn.GroupNorm(min(8, ch), ch)
+
+
+class _LegacyResBlock(nn.Module):
+    def __init__(self, ch):
+        super().__init__()
+        self.net = nn.Sequential(
+            _gn(ch), nn.SiLU(),
+            nn.Conv2d(ch, ch, 3, padding=1),
+            _gn(ch), nn.SiLU(),
+            nn.Conv2d(ch, ch, 3, padding=1),
+        )
+
+    def forward(self, x):
+        return x + self.net(x)
+
+
+class _LegacySelfAttn(nn.Module):
+    def __init__(self, ch):
+        super().__init__()
+        self.norm = _gn(ch)
+        self.qkv = nn.Conv2d(ch, ch * 3, 1, bias=False)
+        self.proj = nn.Conv2d(ch, ch, 1)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        h = self.norm(x)
+        q, k, v = self.qkv(h).chunk(3, dim=1)
+        q = q.reshape(B, C, -1).transpose(1, 2)
+        k = k.reshape(B, C, -1)
+        v = v.reshape(B, C, -1).transpose(1, 2)
+        attn = (q @ k) * (C ** -0.5)
+        attn = attn.softmax(dim=-1)
+        out = (attn @ v).transpose(1, 2).reshape(B, C, H, W)
+        return x + self.proj(out)
+
+
+class _LegacyVAEEncoder(nn.Module):
+    def __init__(self, in_channels, base_ch=64, latent_ch=4):
+        super().__init__()
+        ch = base_ch
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channels, ch, 3, padding=1),
+            _LegacyResBlock(ch),
+            nn.Conv2d(ch, ch * 2, 4, stride=2, padding=1),
+            _LegacyResBlock(ch * 2),
+            nn.Conv2d(ch * 2, ch * 4, 4, stride=2, padding=1),
+            _LegacyResBlock(ch * 4),
+            _LegacySelfAttn(ch * 4),
+            _LegacyResBlock(ch * 4),
+            _gn(ch * 4), nn.SiLU(),
+        )
+        self.mu_proj = nn.Conv2d(ch * 4, latent_ch, 1)
+        self.logvar_proj = nn.Conv2d(ch * 4, latent_ch, 1)
+
+    def forward(self, x):
+        h = self.net(x.float())
+        return self.mu_proj(h), self.logvar_proj(h)
+
+
+class _LegacyVAEDecoder(nn.Module):
+    def __init__(self, out_channels, base_ch=64, latent_ch=4):
+        super().__init__()
+        ch = base_ch
+        self.net = nn.Sequential(
+            nn.Conv2d(latent_ch, ch * 4, 3, padding=1),
+            _LegacyResBlock(ch * 4),
+            _LegacySelfAttn(ch * 4),
+            _LegacyResBlock(ch * 4),
+            nn.ConvTranspose2d(ch * 4, ch * 2, 4, stride=2, padding=1),
+            _LegacyResBlock(ch * 2),
+            nn.ConvTranspose2d(ch * 2, ch, 4, stride=2, padding=1),
+            _LegacyResBlock(ch),
+            _gn(ch), nn.SiLU(),
+            nn.Conv2d(ch, out_channels, 3, padding=1),
+        )
+
+    def forward(self, z):
+        return self.net(z.float())
+
+
+class KLVAE(nn.Module):
+    """KL-regularized VAE with 4x spatial downsampling (legacy checkpoint format).
+
+    Architecture from Rombach et al. 2022: ResBlock + self-attention bottleneck,
+    two stride-2 downsampling stages (encoder) / ConvTranspose2d upsample (decoder).
+    """
+    LATENT_CH = 4
+
+    def __init__(self, in_channels, base_ch=64, latent_ch=4):
+        super().__init__()
+        self.latent_ch = latent_ch
+        self.encoder = _LegacyVAEEncoder(in_channels, base_ch, latent_ch)
+        self.decoder = _LegacyVAEDecoder(in_channels, base_ch, latent_ch)
+
+    def encode(self, x):
+        mu, logvar = self.encoder(x)
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        if not self.training:
+            return mu
+        std = torch.exp(0.5 * logvar)
+        return mu + std * torch.randn_like(std)
+
+    def decode(self, z):
+        return self.decoder(z)
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        recon = self.decode(z)
+        return VAEOutput(reconstruction=recon, mu=mu, logvar=logvar, z=z)
+
+
 __all__ = [
     "VAEOutput",
     "VAE2D",
     "VAE3D",
     "ConvVAE2D",
     "ConvVAE3D",
+    "KLVAE",
     "kl_divergence",
     "reconstruction_loss",
     "codebook_clustering_loss",
