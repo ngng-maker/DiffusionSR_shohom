@@ -49,7 +49,8 @@ def _load_txt(path: Path):
         return None
     try:
         arr = np.loadtxt(str(path))
-        return arr.squeeze() if arr.ndim > 1 else arr
+        arr = arr.squeeze() if arr.ndim > 1 else arr
+        return np.atleast_1d(arr)
     except Exception:
         return None
 
