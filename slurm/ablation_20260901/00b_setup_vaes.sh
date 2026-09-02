@@ -16,7 +16,7 @@ RUNS=$REPO/diffusionsr/runs/ablation_20260901
 DATA=/trace/group/forgelab/ngng/multifield/data_fields
 
 cd "$REPO"
-source ~/.bashrc
+source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate diffusion_SR
 
 echo "=== [1/2] VAE: temperature + sdfliqlabel ==="

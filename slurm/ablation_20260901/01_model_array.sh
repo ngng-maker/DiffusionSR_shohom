@@ -34,7 +34,7 @@ RUNS=$REPO/diffusionsr/runs/ablation_20260901
 CFGS=$REPO/diffusionsr/configs/ablation_20260901
 
 cd "$REPO"
-source ~/.bashrc
+source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate diffusion_SR
 
 TASK=$SLURM_ARRAY_TASK_ID
