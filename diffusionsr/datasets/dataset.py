@@ -8,16 +8,24 @@ import glob
 from matplotlib import pyplot as plt
 from diffusionsr.datasets.dataset_utils import filter_data
 
+def _crop_stat(stat, i0, i1):
+    """Slice a (H, W) or (C, H, W) stat ndarray along its H axis."""
+    return stat[i0:i1] if stat.ndim == 2 else stat[:, i0:i1, :]
+
+
 class SimulationXZDataset(Dataset):
     def __init__(self,
                  downscale_method,
                  root_folder='../../data/update_v2_laser_velocity_xz_cross_section_data',
                  split='train',
                  normalize='standardize',
-                 return_info=False, 
+                 return_info=False,
                  n_steps=1,
-                 field_names = None, 
-                 out_steps = None):
+                 field_names=None,
+                 out_steps=None,
+                 inflate_dim=None,
+                 inflate_method='repeat',
+                 crop_mode=None):
         
         # Use default HR paths, always the same
         # Use LR path as specified, may change
@@ -152,7 +160,25 @@ class SimulationXZDataset(Dataset):
 
 
         self.img_shape = int(test_hr_shape[0])
-      
+        self.inflate_dim = int(inflate_dim) if inflate_dim is not None else None
+        self.inflate_method = inflate_method
+
+        # Spatial crop configuration
+        self.crop_mode = crop_mode
+        if crop_mode is not None:
+            img_h = test_hr_shape[0]
+            if crop_mode == "keyhole_wide":
+                raw = round(img_h * 0.75)
+            elif crop_mode == "keyhole_focus":
+                raw = round(img_h * 0.40)
+            else:
+                raise ValueError(
+                    f"Unknown crop_mode {crop_mode!r}; expected 'keyhole_wide' or 'keyhole_focus'")
+            # Round to a multiple of factor so LR crop is always an integer number of pixels
+            self.crop_h = max(self.factor, (raw // self.factor) * self.factor)
+        else:
+            self.crop_h = None
+
         test_hr_shape.insert(0, len(self.lr_paths))
         test_lr_shape.insert(0, len(self.lr_paths))
        
@@ -279,7 +305,27 @@ class SimulationXZDataset(Dataset):
 
     def __len__(self):
         return len(self.lr_paths)
-    
+
+    def _find_keyhole_x_crop(self, hr_physical):
+        """Return (h0, h1) crop indices along the H (x-axis) dimension.
+
+        Centres a window of width self.crop_h on the melt pool.  hr_physical
+        must be (C, H, W) in physical units with temperature on channel 0.
+        """
+        temp = hr_physical[0]                       # (H, W)
+        active_idx = np.where((temp > 1900).any(axis=1))[0]  # x-positions with T > 1900 K
+        x_center = (int(active_idx.mean())
+                    if len(active_idx) > 0
+                    else hr_physical.shape[1] // 2)
+        h0 = x_center - self.crop_h // 2
+        h1 = h0 + self.crop_h
+        img_h = hr_physical.shape[1]
+        if h0 < 0:
+            h0, h1 = 0, self.crop_h
+        elif h1 > img_h:
+            h0, h1 = img_h - self.crop_h, img_h
+        return h0, h1
+
     def load_file(self, folders, index):
         
         array = filter_data(np.load(folders[index], allow_pickle=True), 
@@ -358,7 +404,30 @@ class SimulationXZDataset(Dataset):
         residual[residual > self.THRESHOLD_T] = self.THRESHOLD_T
         true_lr[true_lr > self.THRESHOLD_T] = self.THRESHOLD_T
         upscaled_lr[upscaled_lr > self.THRESHOLD_T] = self.THRESHOLD_T
-      
+
+        # Spatial crop centred on the melt-pool / keyhole
+        if self.crop_mode is not None:
+            h0, h1 = self._find_keyhole_x_crop(hr)
+            hr          = hr[:, h0:h1, :]
+            upscaled_lr = upscaled_lr[:, h0:h1, :]
+            residual    = residual[:, h0:h1, :]
+            lr_h0 = h0 // self.factor
+            lr_h1 = lr_h0 + self.crop_h // self.factor
+            true_lr = true_lr[:, lr_h0:lr_h1, :]
+            _mhr  = _crop_stat(self.mean_hr,          h0, h1)
+            _shr  = _crop_stat(self.std_hr,           h0, h1)
+            _mulr = _crop_stat(self.mean_upscaled_lr, h0, h1)
+            _sulr = _crop_stat(self.std_upscaled_lr,  h0, h1)
+            _mres = _crop_stat(self.mean_resid,       h0, h1)
+            _sres = _crop_stat(self.std_resid,        h0, h1)
+            _mlr  = _crop_stat(self.mean_lr,          lr_h0, lr_h1)
+            _slr  = _crop_stat(self.std_lr,           lr_h0, lr_h1)
+        else:
+            _mhr,  _shr  = self.mean_hr,          self.std_hr
+            _mulr, _sulr = self.mean_upscaled_lr,  self.std_upscaled_lr
+            _mres, _sres = self.mean_resid,        self.std_resid
+            _mlr,  _slr  = self.mean_lr,           self.std_lr
+
         power = int(self.lr_paths[index].split(
             'power')[-1].split('velocity')[0])
 
@@ -367,11 +436,10 @@ class SimulationXZDataset(Dataset):
             float(self.lr_paths[0].split('_1')[1].split('.npy')[0])/100
 
         if self.normalize == 'standardize':
-            residual = (residual - self.mean_resid)/self.std_resid
-            true_lr = (true_lr - self.mean_lr)/self.std_lr
-            hr = (hr - self.mean_hr)/self.std_hr
-            upscaled_lr = (upscaled_lr - self.mean_upscaled_lr) / \
-                self.std_upscaled_lr
+            residual    = (residual    - _mres) / _sres
+            true_lr     = (true_lr    - _mlr)  / _slr
+            hr          = (hr         - _mhr)  / _shr
+            upscaled_lr = (upscaled_lr - _mulr) / _sulr
         elif self.normalize == 'rescaling':
             for i, field in enumerate(self.field_max.keys()):
                 min = self.field_min[field]

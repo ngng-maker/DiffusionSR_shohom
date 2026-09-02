@@ -976,6 +976,7 @@ def build_dataset(config: dict, split: str, spatial_dims: int):
         out_steps=config.get("out_steps"),
         inflate_dim=inflate_dim,
         inflate_method=config.get("inflate_method", "repeat"),
+        crop_mode=config.get("crop_mode"),
     )
 
 
