@@ -1,0 +1,20 @@
+# LDM + RRDB encoder warm-start + temperature field only
+# Ablation 2026-09-01: FM vs LDM  x  enc vs noenc  x  sdf vs temp
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "3"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "temperature"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "huber"
+vae_epochs: 100
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/enc_temp"
+vae_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/vae_temp"

@@ -61,6 +61,8 @@ def config_to_field_names(config_dict) -> Optional[List[str]]:
         return ["temperature"]
     if fields == "temperature_liqlabel":
         return ["temperature", "liqlabel"]
+    if fields == "temperature_sdfliqlabel":
+        return ["temperature", "sdfliqlabel"]
     if fields in ["temperature_liqlabel_meltregion", "temperature_liqlabel_melt_region"]:
         return ["temperature", "liqlabel", "meltregion"]
     if fields == "all_but_pressure":
