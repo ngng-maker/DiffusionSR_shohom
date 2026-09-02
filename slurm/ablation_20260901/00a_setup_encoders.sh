@@ -16,6 +16,7 @@ RUNS=$REPO/diffusionsr/runs/ablation_20260901
 CFGS=$REPO/diffusionsr/configs/ablation_20260901
 
 cd "$REPO"
+source ~/.bashrc
 conda activate diffusion_SR
 mkdir -p logs/ablation_20260901
 
