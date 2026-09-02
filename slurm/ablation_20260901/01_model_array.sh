@@ -35,7 +35,7 @@ CFGS=$REPO/diffusionsr/configs/ablation_20260901
 
 cd "$REPO"
 source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
-conda activate diffusion_SR
+conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
 TASK=$SLURM_ARRAY_TASK_ID
 

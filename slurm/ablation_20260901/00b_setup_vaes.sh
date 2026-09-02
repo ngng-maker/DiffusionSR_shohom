@@ -17,7 +17,7 @@ DATA=/trace/group/forgelab/ngng/multifield/data_fields
 
 cd "$REPO"
 source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
-conda activate diffusion_SR
+conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
 echo "=== [1/2] VAE: temperature + sdfliqlabel ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
