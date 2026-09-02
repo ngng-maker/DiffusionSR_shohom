@@ -15,4 +15,4 @@ batch_size: 8
 epochs: 300
 learning_rate: 5e-5
 use_pretrained: False
-loss_type: "l1"
+loss_type: "huber"
