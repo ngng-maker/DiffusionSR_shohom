@@ -49,7 +49,7 @@ class SimulationXZDataset(Dataset):
         self.field_threshold = {'vx': 1000,
                                 'temperature': self.THRESHOLD_T,
                                 'pressure': 1e7, 'vy': 1000, 'vz': 1000, 'liqlabel': 1,
-                                'sdfliqlabel': float('inf'), 'meltregion': float('inf')}
+                                'sdfliqlabel': 200, 'meltregion': float('inf')}
       
         field_metadata_path = os.path.join(self.root_folder, 'field_metadata.json')
         if os.path.exists(field_metadata_path):
