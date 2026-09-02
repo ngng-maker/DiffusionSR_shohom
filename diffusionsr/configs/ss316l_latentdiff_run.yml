@@ -6,11 +6,11 @@
 # -----------------------------------------------------------------------------
 # Dataset
 # -----------------------------------------------------------------------------
-root_folder: "./data/expanded_ss316l_all_laser_velocity_xz_cross_section_data_expanded_frame"
+root_folder: "./data/splits/ss316l_processed_3d_fields_seed20260518"
 downscale_method: "direct"
 n_steps: 1
 out_steps: null
-fields: [temperature]
+fields: [temperature, sdfliqlabel]
 normalize_method: "standardize"
 inflate_dim: null
 inflate_method: "repeat"
@@ -30,6 +30,8 @@ statistics_workers: 8
 
 # -----------------------------------------------------------------------------
 # Frozen latent encoders
+# NOTE: dirs below were trained on the old dataset; retrain VAEs on
+# ss316l_processed_3d_fields_seed20260518 and update these paths.
 # -----------------------------------------------------------------------------
 latent_input_encoder_dir: "./runs/direct/vae2d/2026_05_18_16_32_16/standardize/n_steps_1"
 latent_input_encoder_checkpoint: "best_model.pth"
@@ -63,8 +65,8 @@ latent_num_blocks: 2
 # -----------------------------------------------------------------------------
 # Optimizer and runtime
 # -----------------------------------------------------------------------------
-epochs: 100
-batch_size: 32
+epochs: 600
+batch_size: 16
 learning_rate: 1.0e-4
 latent_learning_rate: null
 latent_weight_decay: 0.0
