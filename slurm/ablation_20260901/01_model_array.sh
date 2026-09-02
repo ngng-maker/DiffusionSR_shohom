@@ -27,7 +27,7 @@
 #   #SBATCH --array=<failed_task_id>
 #   Add: --resume_from_wandb "${WANDB_NAMES[$SLURM_ARRAY_TASK_ID]}"
 
-set -euo pipefail
+set -eo pipefail
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901

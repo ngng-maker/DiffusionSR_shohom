@@ -9,7 +9,7 @@
 #SBATCH --output=logs/ablation_20260901/vae_%j.log
 #SBATCH --error=logs/ablation_20260901/vae_%j.err
 
-set -euo pipefail
+set -eo pipefail
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901
