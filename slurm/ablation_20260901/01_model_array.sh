@@ -2,7 +2,7 @@
 #SBATCH --job-name=fm_ldm_enc_sdf_ablation_1Sep2026
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:a40:1
-#SBATCH --time=5-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
