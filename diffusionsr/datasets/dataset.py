@@ -46,9 +46,10 @@ class SimulationXZDataset(Dataset):
         print(f"Using normalize method: ... {self.normalize}")
 
         # Set thresholds for each field for plotting
-        self.field_threshold = {'vx': 1000, 
-                                'temperature': self.THRESHOLD_T, 
-                                'pressure': 1e7, 'vy':1000, 'vz': 1000, 'liqlabel': 1 }
+        self.field_threshold = {'vx': 1000,
+                                'temperature': self.THRESHOLD_T,
+                                'pressure': 1e7, 'vy': 1000, 'vz': 1000, 'liqlabel': 1,
+                                'sdfliqlabel': float('inf'), 'meltregion': float('inf')}
       
         field_metadata_path = os.path.join(self.root_folder, 'field_metadata.json')
         if os.path.exists(field_metadata_path):
@@ -186,8 +187,10 @@ class SimulationXZDataset(Dataset):
          
         self.t_max = 5000
         self.t_min = 293
-        self.field_max = {'vx': 100, 'temperature': self.t_max, 'pressure': 1e8, 'vy':100, 'vz': 100, 'liqlabel': 1 }
-        self.field_min = {'vx': -100, 'temperature': self.t_min, 'pressure': 1e6, 'vy':-100, 'vz': -100, 'liqlabel': 0 }
+        self.field_max = {'vx': 100, 'temperature': self.t_max, 'pressure': 1e8, 'vy': 100, 'vz': 100, 'liqlabel': 1,
+                          'sdfliqlabel': 1.0, 'meltregion': 1.0}
+        self.field_min = {'vx': -100, 'temperature': self.t_min, 'pressure': 1e6, 'vy': -100, 'vz': -100, 'liqlabel': 0,
+                          'sdfliqlabel': -1.0, 'meltregion': 0.0}
 
     def compute_statistics(self):
         test_hr_shape = list(np.load(self.hr_paths[0]).shape)

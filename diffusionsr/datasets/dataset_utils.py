@@ -16,7 +16,7 @@ def filter_data(array, thresholds, field_idxs, field_names):
             )
         array = array.copy()
         for field in field_names:
-            threshold = thresholds[field]
+            threshold = thresholds.get(field, float('inf'))
             array[array > threshold] = threshold
             array[array < -threshold] = -threshold
         return array
@@ -33,7 +33,7 @@ def filter_data(array, thresholds, field_idxs, field_names):
         selected = selected[..., None]
 
     for selected_idx, field in enumerate(field_names):
-        threshold = thresholds[field]
+        threshold = thresholds.get(field, float('inf'))
         channel = selected[..., selected_idx]
         channel[channel > threshold] = threshold
         channel[channel < -threshold] = -threshold
