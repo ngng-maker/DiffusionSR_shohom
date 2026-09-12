@@ -27,7 +27,8 @@ python -m diffusionsr.runners.train_srdiff \
   --gpu 0 \
   --force_run_dir "$RUNS/enc_sdf" \
   --force_enc_dir "$RUNS/enc_sdf" \
-  --wandb_run_name "1_Sep_2026_encoder_sdf"
+  --wandb_run_name "1_Sep_2026_encoder_sdf" \
+  --resume_from_wandb "1_Sep_2026_encoder_sdf"
 
 echo "=== [2/2] Encoder: temperature only ==="
 python -m diffusionsr.runners.train_srdiff \
