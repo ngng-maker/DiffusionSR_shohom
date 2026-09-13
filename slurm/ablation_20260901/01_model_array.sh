@@ -76,4 +76,7 @@ python -m diffusionsr.runners.train_srdiff \
   --wandb_run_name "$WNAME" \
   $ENC_ARG
 
+# W&B has uploaded the checkpoint artifact — remove local staging to free home quota
+rm -rf ~/.local/share/wandb/artifacts/staging/
+
 echo "=== $NAME complete ==="

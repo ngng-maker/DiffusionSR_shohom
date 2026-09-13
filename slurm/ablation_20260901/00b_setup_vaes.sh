@@ -19,14 +19,16 @@ cd "$REPO"
 source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
-echo "=== [1/2] VAE: temperature + sdfliqlabel ==="
+echo "=== [1/2] VAE: temperature + liqlabel ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
   --root_folder "$DATA" \
   --vae_dir "$RUNS/vae_sdf" \
-  --fields temperature_sdfliqlabel \
+  --fields temperature_liqlabel \
   --n_steps 3 \
   --epochs 100 \
   --wandb_run_name "1_Sep_2026_vae_sdf"
+
+rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== [2/2] VAE: temperature only ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
@@ -36,5 +38,7 @@ python -m diffusionsr.scripts.pretrain_vae_standalone \
   --n_steps 3 \
   --epochs 100 \
   --wandb_run_name "1_Sep_2026_vae_temp"
+
+rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== VAE pretraining complete ==="

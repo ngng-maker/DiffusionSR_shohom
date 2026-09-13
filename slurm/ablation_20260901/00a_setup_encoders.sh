@@ -20,7 +20,7 @@ source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 mkdir -p logs/ablation_20260901
 
-echo "=== [1/2] Encoder: temperature + sdfliqlabel ==="
+echo "=== [1/2] Encoder: temperature + liqlabel ==="
 python -m diffusionsr.runners.train_srdiff \
   --config "$CFGS/fm_enc_sdf.yml" \
   --modeltype encoder \
@@ -30,6 +30,9 @@ python -m diffusionsr.runners.train_srdiff \
   --wandb_run_name "1_Sep_2026_encoder_sdf" \
   --resume_from_wandb "1_Sep_2026_encoder_sdf"
 
+# W&B has uploaded the artifact — delete local staging to free home quota
+rm -rf ~/.local/share/wandb/artifacts/staging/
+
 echo "=== [2/2] Encoder: temperature only ==="
 python -m diffusionsr.runners.train_srdiff \
   --config "$CFGS/fm_enc_temp.yml" \
@@ -38,5 +41,7 @@ python -m diffusionsr.runners.train_srdiff \
   --force_run_dir "$RUNS/enc_temp" \
   --force_enc_dir "$RUNS/enc_temp" \
   --wandb_run_name "1_Sep_2026_encoder_temp"
+
+rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== Encoder pretraining complete ==="
