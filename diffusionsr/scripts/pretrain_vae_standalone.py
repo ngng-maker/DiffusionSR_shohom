@@ -37,7 +37,11 @@ def main():
     parser.add_argument("--epochs",          type=int, default=100)
     parser.add_argument("--wandb_run_name",  default=None)
     parser.add_argument("--wandb_project",   default="Flow3D_SuperResolution")
+    parser.add_argument("--gpu",             type=int, default=0)
     args = parser.parse_args()
+
+    import torch
+    torch.cuda.set_device(args.gpu)
 
     field_names = config_to_field_names(args.fields)
     print(f"Field names: {field_names}")

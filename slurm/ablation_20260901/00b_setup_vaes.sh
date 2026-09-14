@@ -27,6 +27,7 @@ python -m diffusionsr.scripts.pretrain_vae_standalone \
   --fields temperature_liqlabel \
   --n_steps 3 \
   --epochs 100 \
+  --gpu 0 \
   --wandb_run_name "1_Sep_2026_vae_sdf"
 
 rm -rf ~/.local/share/wandb/artifacts/staging/
@@ -38,6 +39,7 @@ python -m diffusionsr.scripts.pretrain_vae_standalone \
   --fields temperature \
   --n_steps 3 \
   --epochs 100 \
+  --gpu 0 \
   --wandb_run_name "1_Sep_2026_vae_temp"
 
 rm -rf ~/.local/share/wandb/artifacts/staging/
