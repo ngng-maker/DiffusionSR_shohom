@@ -9,6 +9,7 @@
 #SBATCH --array=0-7
 #SBATCH --output=logs/ablation_20260901/model_%a_%j.log
 #SBATCH --error=logs/ablation_20260901/model_%a_%j.err
+#SBATCH --requeue
 #
 # Phase 1: train all 8 ablation models in parallel (job array).
 # Requires Phase 0 (00_setup_enc_vae.sh) to have completed first.
@@ -23,9 +24,8 @@
 #   6  ldm_noenc_sdf— LDM         + no encoder + temp+sdf
 #   7  ldm_noenc_temp LDM         + no encoder + temp only
 #
-# To REQUEUE (after SLURM preemption), add --resume_from_wandb <WANDB_RUN_NAME>:
-#   #SBATCH --array=<failed_task_id>
-#   Add: --resume_from_wandb "${WANDB_NAMES[$SLURM_ARRAY_TASK_ID]}"
+# --requeue is set so SLURM auto-restarts preempted tasks. --resume_from_wandb
+# is always passed so a restarted task picks up its existing W&B run.
 
 set -eo pipefail
 
@@ -74,6 +74,7 @@ python -m diffusionsr.runners.train_srdiff \
   --gpu 0 \
   --force_run_dir "/scratch/ngng/runs/$NAME" \
   --wandb_run_name "$WNAME" \
+  --resume_from_wandb "$WNAME" \
   $ENC_ARG
 
 # W&B has uploaded the checkpoint artifact — remove local staging to free home quota

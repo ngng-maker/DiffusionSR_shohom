@@ -8,6 +8,7 @@
 #SBATCH --mem=32G
 #SBATCH --output=logs/ablation_20260901/enc_%j.log
 #SBATCH --error=logs/ablation_20260901/enc_%j.err
+#SBATCH --requeue
 
 set -eo pipefail
 
