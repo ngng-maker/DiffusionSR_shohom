@@ -72,7 +72,7 @@ python -m diffusionsr.runners.train_srdiff \
   --config "$CFGS/$CFG.yml" \
   --modeltype "$MTYPE" \
   --gpu 0 \
-  --force_run_dir "/scratch/ngng/runs/$NAME" \
+  --force_run_dir "$RUNS/$NAME" \
   --wandb_run_name "$WNAME" \
   --resume_from_wandb "$WNAME" \
   $ENC_ARG
