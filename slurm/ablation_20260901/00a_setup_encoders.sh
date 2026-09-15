@@ -12,6 +12,9 @@
 
 set -eo pipefail
 
+# Always clean W&B artifact staging on exit (success or failure) to free home quota
+trap 'rm -rf ~/.local/share/wandb/artifacts/staging/' EXIT
+
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901
 CFGS=$REPO/diffusionsr/configs/ablation_20260901
@@ -31,9 +34,6 @@ python -m diffusionsr.runners.train_srdiff \
   --wandb_run_name "1_Sep_2026_encoder_sdf" \
   --resume_from_wandb "1_Sep_2026_encoder_sdf"
 
-# W&B has uploaded the artifact — delete local staging to free home quota
-rm -rf ~/.local/share/wandb/artifacts/staging/
-
 echo "=== [2/2] Encoder: temperature only ==="
 python -m diffusionsr.runners.train_srdiff \
   --config "$CFGS/fm_enc_temp.yml" \
@@ -42,7 +42,5 @@ python -m diffusionsr.runners.train_srdiff \
   --force_run_dir "$RUNS/enc_temp" \
   --force_enc_dir "$RUNS/enc_temp" \
   --wandb_run_name "1_Sep_2026_encoder_temp"
-
-rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== Encoder pretraining complete ==="

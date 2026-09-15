@@ -29,6 +29,9 @@
 
 set -eo pipefail
 
+# Always clean W&B artifact staging on exit (success or failure) to free home quota
+trap 'rm -rf ~/.local/share/wandb/artifacts/staging/' EXIT
+
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901
 CFGS=$REPO/diffusionsr/configs/ablation_20260901
@@ -76,8 +79,5 @@ python -m diffusionsr.runners.train_srdiff \
   --wandb_run_name "$WNAME" \
   --resume_from_wandb "$WNAME" \
   $ENC_ARG
-
-# W&B has uploaded the checkpoint artifact — remove local staging to free home quota
-rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== $NAME complete ==="

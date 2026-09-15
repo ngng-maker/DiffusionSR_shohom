@@ -12,6 +12,9 @@
 
 set -eo pipefail
 
+# Always clean W&B artifact staging on exit (success or failure) to free home quota
+trap 'rm -rf ~/.local/share/wandb/artifacts/staging/' EXIT
+
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901
 DATA=/trace/group/forgelab/ngng/multifield/data_fields
@@ -30,8 +33,6 @@ python -m diffusionsr.scripts.pretrain_vae_standalone \
   --gpu 0 \
   --wandb_run_name "1_Sep_2026_vae_sdf"
 
-rm -rf ~/.local/share/wandb/artifacts/staging/
-
 echo "=== [2/2] VAE: temperature only ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
   --root_folder "$DATA" \
@@ -41,7 +42,5 @@ python -m diffusionsr.scripts.pretrain_vae_standalone \
   --epochs 100 \
   --gpu 0 \
   --wandb_run_name "1_Sep_2026_vae_temp"
-
-rm -rf ~/.local/share/wandb/artifacts/staging/
 
 echo "=== VAE pretraining complete ==="
