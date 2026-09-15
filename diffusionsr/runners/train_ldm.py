@@ -196,7 +196,10 @@ class LDMModel(DiffusionModel):
     # ── Overrides for latent-space operation ──────────────────────────────────
 
     def compute_x_e(self, true_lr, upscaled_lr):
-        """Return latent conditioning: VAE_enc(RRDB(LR)) -> z_e (B, 4, H/4, W/4)."""
+        """Return latent conditioning: VAE_enc(RRDB(LR)) -> z_e (B, 4, H/4, W/4).
+        Returns None for no-encoder configs (encoding=False, conditioning='none')."""
+        if not self.encoding:
+            return None
         x_e_pixel = forwardpass(self.lr_enc, true_lr.to(self.device).float(),
                                 factor=self.train_dataset.factor, output=True,
                                 transform_rescale=self.transform_rescale,
