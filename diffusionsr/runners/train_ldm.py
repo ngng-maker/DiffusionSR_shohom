@@ -163,7 +163,11 @@ class LDMModel(DiffusionModel):
         if 'encoder.net.0.weight' in state:
             vae = KLVAE(in_channels=in_ch, base_ch=64, latent_ch=LATENT_CH).to(self.device)
         else:
+            # Infer hidden_channels from checkpoint: to_mu.weight shape is
+            # [latent_ch, hidden_ch * max(mults), 1, 1] with mults=(1,2) → divide by 2
+            hidden_ch = state['to_mu.weight'].shape[1] // max(_VAE_CHANNEL_MULTS)
             vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
+                        hidden_channels=hidden_ch,
                         channel_multipliers=_VAE_CHANNEL_MULTS).to(self.device)
         vae.load_state_dict(state)
         vae.eval()
