@@ -12,8 +12,12 @@
 
 set -eo pipefail
 
-# Always clean W&B artifact staging on exit (success or failure) to free home quota
-trap 'rm -rf ~/.local/share/wandb/artifacts/staging/' EXIT
+# Redirect W&B artifact cache to node-local /tmp (auto-cleaned, never hits home quota)
+export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_JOB_ID}
+mkdir -p "$WANDB_CACHE_DIR"
+
+# Always clean W&B artifact staging AND cache on exit (success or failure)
+trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
 RUNS=$REPO/diffusionsr/runs/ablation_20260901
