@@ -75,7 +75,8 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
         lr_enc.to(device)
         print(f"Resuming encoder from epoch {start_epoch}")
 
-    for epoch in range(start_epoch, 250):
+    n_epochs = int(config['epochs']) if config and 'epochs' in config else 250
+    for epoch in range(start_epoch, n_epochs):
         if epoch_subsample_frac is not None and epoch_subsample_frac < 1.0:
             n_sub = max(batch_size, int(epoch_subsample_frac * len(train_dataset)))
             sub_idx = torch.randperm(len(train_dataset))[:n_sub].tolist()
@@ -395,7 +396,13 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                 'epoch': epoch,
                 'model_state_dict': lr_enc.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'loss': loss,
+                'losses': losses,
+                'test_losses': test_losses,
+                'scaled_losses': scaled_losses,
+                'test_scaled_losses': test_scaled_losses,
+                'min_test_loss': min_test_loss,
             }, best_path)
             upload_checkpoint_artifact(best_path, wandb.run.name, epoch, is_best=True)
 
