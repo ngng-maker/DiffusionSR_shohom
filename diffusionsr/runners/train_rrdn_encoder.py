@@ -418,8 +418,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
             'test_scaled_losses': test_scaled_losses,
             'min_test_loss': min_test_loss,
         }, enc_ckpt_path)
-        if epoch % 25 == 0 or epoch == n_epochs - 1:
-            upload_checkpoint_artifact(enc_ckpt_path, wandb.run.name, epoch, is_best=False)
+        wandb.save(enc_ckpt_path, base_path=results_dir, policy='now')
 
     # Upload loss curves to W&B at the end of encoder training.
     try:

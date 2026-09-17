@@ -802,8 +802,10 @@ class DiffusionModel():
                 best_val_loss = test_mean_loss
                 torch.save(states, os.path.join(self.results_folder, "bestmodel_saved.pth"))
             _run_name = wandb.run.name if wandb.run is not None else "run"
-            if is_best or epoch % 25 == 0:
-                upload_checkpoint_artifact(ckpt_path, _run_name, epoch, is_best=is_best)
+            if is_best:
+                upload_checkpoint_artifact(ckpt_path, _run_name, epoch, is_best=True)
+            if wandb.run is not None:
+                wandb.save(ckpt_path, base_path=str(self.results_folder), policy='now')
 
             if epoch % 2 == 0:
                   self.sample_and_save(batch, res, hr, true_lr, upscaled_lr, x_e, step, epoch, split = 'validation')
