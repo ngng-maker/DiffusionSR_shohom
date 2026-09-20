@@ -33,6 +33,6 @@ python -m diffusionsr.analysis.eval_predictions \
     --vae_dir         "$RUNS/vae_sdf" \
     --data_root       "$DATA" \
     --field_names     temperature liqlabel \
-    --batch_size      4
+    --batch_size      2
 
 echo "=== eval_abl_ldm_enc_sdf complete ==="

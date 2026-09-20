@@ -32,6 +32,6 @@ python -m diffusionsr.analysis.eval_predictions \
     --vae_dir         "$RUNS/vae_temp" \
     --data_root       "$DATA" \
     --field_names     temperature \
-    --batch_size      4
+    --batch_size      2
 
 echo "=== eval_abl_ldm_noenc_temp complete ==="
