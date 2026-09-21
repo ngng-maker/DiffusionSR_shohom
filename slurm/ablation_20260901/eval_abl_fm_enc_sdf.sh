@@ -12,6 +12,7 @@
 
 set -eo pipefail
 
+export WANDB_ENTITY=ngng-
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_JOB_ID}
 mkdir -p "$WANDB_CACHE_DIR"
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
