@@ -4,19 +4,21 @@
 # builtin backend), this isolates whether the backend choice is a confound. If they agree, the
 # all-builtin primary arms are defensible and FNO-B (which requires builtin) stays in the study.
 #
-# !! NOT YET SIZED - DO NOT TRUST THIS ARM UNTIL YOU DO THIS !!
-# PhysicsNeMo's FNO has a different decoder, so these kwargs do NOT give RRDB's parameter count.
-# On TRACE, with physicsnemo installed:
-#   python -m diffusionsr.analysis.count_encoder_params --match 5904321 --backend physicsnemo
-# and paste the reported latent_channels / num_fno_layers / num_fno_modes below (into BOTH the enc_
-# and diff_ file, or stage 2 cannot load the stage-1 checkpoint).
-# The tool now measures REAL degrees of freedom; an earlier revision measured torch numel(), which
-# undercounts complex spectral weights ~2x. Re-run it even if you ran it before.#
-# SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
-# The FNO's spectral weights are complex64; each element carries an independent real and imaginary
-# part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
-# and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
-#   python -m diffusionsr.analysis.count_encoder_params
+# SIZED 2026-09-23. Deliberately uses kwargs IDENTICAL to enc_fno_pre / diff_fno_pre
+# (latent 32, modes [18,20], 4 layers) rather than the closest-to-target values the search tool
+# reported. That is the point of a calibration arm: with identical hyperparameters the ONLY
+# difference from the builtin arm is the implementation, so anything the comparison shows is
+# attributable to the backend and nothing else.
+#
+# Measured on TRACE with physicsnemo installed:
+#   physicsnemo  5,906,817 real DOF   (1.000x RRDB)
+#   builtin      5,906,273 real DOF   (1.000x RRDB)
+#   difference     544 params, 0.009% - the two implementations are capacity-equivalent at
+#                  identical settings, so capacity is excluded as an explanation for any divergence.
+#
+# (An earlier naive numel() comparison made the two backends look ~2x apart. That was an artefact
+# of physicsnemo storing spectral weights as real tensors while the builtin body stores them as
+# complex64; counting real degrees of freedom normalises both.)
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype diffusion
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
@@ -42,5 +44,5 @@ encoder_kwargs:
   num_fno_modes: [18, 20]
   padding: 8
   upsample_mode: "pre"
-  backend: "physicsnemo"      # PLACEHOLDER SIZE - see header
+  backend: "physicsnemo"      # the only difference from fno_pre
 encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_pre_pnemo"
