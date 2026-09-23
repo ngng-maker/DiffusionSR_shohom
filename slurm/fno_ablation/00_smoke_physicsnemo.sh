@@ -22,9 +22,13 @@
 set -euo pipefail  # Abort on any error, on undefined variables, and on failures inside pipelines
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom  # Repo root on the cluster filesystem
+# Conda environment to use. Defaults to the existing project env, but can be overridden at submit
+# time without editing this file, e.g.:  sbatch --export=ALL,CONDA_ENV=diffusion_SR_fno <script>
+CONDA_ENV="${CONDA_ENV:-diffusion_SR}"
 
 cd "$REPO"                       # Run everything from the repo root so module imports resolve
-conda activate diffusion_SR      # Activate the project environment (see the login-node step for creating the FNO variant)
+conda activate "$CONDA_ENV"      # Activate the selected environment
+echo "Using conda env: $CONDA_ENV"
 
 mkdir -p logs/fno_ablation       # SLURM does not create the log directory itself; missing it silently drops output
 
