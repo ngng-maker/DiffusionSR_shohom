@@ -692,7 +692,7 @@ class DiffusionModel():
             self.optimizer.load_state_dict(checkpoint[1])
             epoch = checkpoint[2]
             self.step = checkpoint[3]
-            self.start_epoch = epoch
+            self.start_epoch = epoch + 1
         else:
             self.start_epoch = 0
 
