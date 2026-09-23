@@ -49,6 +49,13 @@ ARRAY_JID=$(sbatch --parsable \
   slurm/ablation_20260901/01_model_array.sh)
 echo "  Model array job ID: $ARRAY_JID"
 
+# ── DDPM standardize (depends on 0a for encoders only; no VAE needed) ────────
+echo "=== Phase 3: 4-run DDPM array [standardize] — depends on $ENC_JID ==="
+DDPM_JID=$(sbatch --parsable \
+  --dependency=afterok:"$ENC_JID" \
+  slurm/ablation_20260901/03_model_array_ddpm.sh)
+echo "  DDPM array job ID: $DDPM_JID"
+
 # ── global_standardize chain (independent of 0a/0b/Phase1) ───────────────────
 echo "=== Phase 0c: encoder pretraining [global_std] (enc_multifield_global, enc_temp_global) ==="
 ENC_G_JID=$(sbatch --parsable slurm/ablation_20260901/00c_setup_encoders_global.sh)
@@ -65,6 +72,13 @@ ARRAY_G_JID=$(sbatch --parsable \
   --dependency=afterok:"$VAE_G_JID" \
   slurm/ablation_20260901/02_model_array_global.sh)
 echo "  Model-global array job ID: $ARRAY_G_JID"
+
+# ── DDPM global (depends on 0c for global encoders) ──────────────────────────
+echo "=== Phase 4: 4-run DDPM array [global_std] — depends on $ENC_G_JID ==="
+DDPM_G_JID=$(sbatch --parsable \
+  --dependency=afterok:"$ENC_G_JID" \
+  slurm/ablation_20260901/04_model_array_ddpm_global.sh)
+echo "  DDPM-global array job ID: $DDPM_G_JID"
 
 echo ""
 echo "=== All jobs submitted ==="
