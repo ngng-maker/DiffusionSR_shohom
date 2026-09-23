@@ -63,13 +63,20 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
     )
     print(f"Encoder architecture: {encoder_type} | kwargs={encoder_kwargs}")
 
-    # torchsummary is a diagnostic only. It requires CUDA here and previously hardcoded a 20x20 input,
-    # which is the SS316L 4x LR size but wrong for any other dataset. Derive the real LR shape instead,
-    # and treat a failure as non-fatal so a summary quirk can never abort a training run.
+    # Move the encoder to the GPU EXPLICITLY, before any diagnostics. Previously this happened only
+    # as a side effect of `torchsummary.summary(lr_enc.to('cuda'), ...)`. That made correct device
+    # placement depend on a diagnostic call succeeding: the training loop below sends batches to
+    # 'cuda' but never moves lr_enc itself, so if the summary were ever skipped the first forward
+    # pass would die with a device mismatch. Device placement is not a diagnostic concern.
+    lr_enc.to('cuda')
+
+    # torchsummary is purely informational. It previously hardcoded a 20x20 input, which is the
+    # SS316L 4x LR size but wrong for any other dataset, so derive the real LR shape. Wrapped so a
+    # summary quirk can never abort a training run - safe now that device placement is independent.
     try:
         lr_side = train_dataset.img_shape // train_dataset.factor  # LR grid side length implied by HR size and factor
-        torchsummary.summary(lr_enc.to('cuda'), input_size=(train_dataset.n_steps * train_dataset.num_fields, lr_side, lr_side))
-    except Exception as _summary_error:  # Any failure (no CUDA, unsupported shape) is diagnostic-only
+        torchsummary.summary(lr_enc, input_size=(train_dataset.n_steps * train_dataset.num_fields, lr_side, lr_side))
+    except Exception as _summary_error:  # Any failure (unsupported shape, no CUDA) is diagnostic-only
         print(f"torchsummary skipped: {_summary_error}")
 
 

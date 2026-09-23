@@ -32,9 +32,20 @@ try:
     from physicsnemo.models.fno import FNO as _PhysicsNeMoFNO  # The packaged FNO; aliased with a leading underscore to keep it out of `__all__`
 
     PHYSICSNEMO_AVAILABLE = True  # Set when the import succeeded, so callers can branch without repeating the try/except
-except ImportError:  # Raised when the physicsnemo package is not installed in the active environment
-    _PhysicsNeMoFNO = None  # Bind the name to None so later `is None` checks are well-defined rather than NameError
+    _PHYSICSNEMO_IMPORT_ERROR = None  # No error to report
+except Exception as _import_error:  # noqa: BLE001 - see below for why this is deliberately broad
+    # Catching bare Exception rather than ImportError is intentional and load-bearing. This module is
+    # imported transitively by `encoder_factory`, which `train_rrdn_encoder` imports at module scope,
+    # so ANY exception escaping here would break every training job in the repo - including RRDB
+    # baseline runs that never touch physicsnemo. A half-installed or version-mismatched physicsnemo
+    # can raise OSError (missing CUDA .so), RuntimeError, or AttributeError rather than ImportError,
+    # none of which an `except ImportError` would catch. An optional dependency must never be able to
+    # take down the required path.
+    _PhysicsNeMoFNO = None  # Bind the name so later `is None` checks are well-defined rather than NameError
     PHYSICSNEMO_AVAILABLE = False  # Records that only the builtin backend can be used in this environment
+    _PHYSICSNEMO_IMPORT_ERROR = _import_error  # Kept so the reason can be surfaced instead of silently swallowed
+    # Print rather than warn: this needs to be visible in a SLURM log without configuring logging.
+    print(f"[fno_encoder_model] physicsnemo unavailable ({type(_import_error).__name__}: {_import_error}); using builtin backend")
 
 
 # --- ALGORITHM: Spectral convolution, the core operator of a Fourier Neural Operator (Li et al., 2021) ---
