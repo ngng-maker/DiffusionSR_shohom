@@ -83,6 +83,20 @@ print(f'  {\"rrdb\":<12} OK  params={sum(p.numel() for p in rrdb.parameters()):,
 
 echo
 echo "=== [3/3] regression gate — RRDB baseline must be unchanged ==="
+# pytest is a dev-only dependency (requirements-dev.txt) and is frequently absent from training
+# environments. Without this check `python -m pytest` just emits "No module named pytest" to stderr
+# and `set -e` kills the job with a bare exit 1 and nothing useful in the .log - which is exactly
+# what happened on the first cluster run. Detect it up front and say what to do about it.
+if ! python -c "import pytest" 2>/dev/null; then
+  echo "ERROR: pytest is not installed in $CONDA_ENV, so the regression gate did not run."
+  echo "       Steps 1 and 2 above still tell you the environment and encoder shapes are fine."
+  echo "       Install it and resubmit:"
+  echo "         conda activate $CONDA_ENV && pip install pytest"
+  echo "       Or run the gate directly on the login node (all its tests are CPU-only, ~10s):"
+  echo "         python -m pytest tests/test_fno_encoder.py -v"
+  exit 1
+fi
+
 # The critical check. If this fails, the encoder refactor altered the conditioning path and every
 # RRDB-vs-FNO comparison is invalid. -x stops at the first failure so it is obvious in the log.
 python -m pytest tests/test_fno_encoder.py -v -x
