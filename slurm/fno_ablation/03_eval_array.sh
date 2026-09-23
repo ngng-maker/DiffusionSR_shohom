@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-3
+#SBATCH --array=0-4
 #SBATCH --output=logs/fno_ablation/eval_%a_%j.log
 #SBATCH --error=logs/fno_ablation/eval_%a_%j.err
 #SBATCH --requeue
@@ -45,7 +45,9 @@ conda activate "$CONDA_ENV"
 
 TASK=$SLURM_ARRAY_TASK_ID
 
-ARMS=(rrdb fno_pre fno_spectral fno_conv)
+# Index order must match 01_setup_encoders.sh. Task 4 is the PhysicsNeMo
+# calibration arm: identical to task 1 except for the backend.
+ARMS=(rrdb fno_pre fno_spectral fno_conv fno_pre_pnemo)
 ARM=${ARMS[$TASK]}
 NAME="fno_abl_diff_${ARM}"
 

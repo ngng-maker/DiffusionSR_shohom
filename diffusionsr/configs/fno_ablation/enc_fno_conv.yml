@@ -27,4 +27,4 @@ encoder_kwargs:
   num_fno_modes: [8, 8]       # same Nyquist cap as fno_spectral
   padding: 4
   upsample_mode: "conv"
-  backend: "auto"
+  backend: "builtin"       # PINNED for reproducibility

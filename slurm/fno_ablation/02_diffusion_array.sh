@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-3
+#SBATCH --array=0-4
 #SBATCH --output=logs/fno_ablation/diff_%a_%j.log
 #SBATCH --error=logs/fno_ablation/diff_%a_%j.err
 #SBATCH --requeue
@@ -24,6 +24,9 @@
 #   1  fno_pre       — FNO-A: bicubic to HR, operator at HR
 #   2  fno_spectral  — FNO-B: operator at LR, spectral upsampling  (builtin backend only)
 #   3  fno_conv      — FNO-C: operator at LR, RRDB's conv upsampling stack
+#   4  fno_pre_pnemo — CALIBRATION: FNO-A again under the PhysicsNeMo backend. Compared against
+#                     task 1 it isolates whether the backend choice is a confound. Not part of the
+#                     primary comparison; requires physicsnemo to be installed.
 #
 # To requeue a single failed task (e.g. task 2):
 #   sbatch --array=2 slurm/fno_ablation/02_diffusion_array.sh
@@ -48,7 +51,9 @@ conda activate "$CONDA_ENV"
 TASK=$SLURM_ARRAY_TASK_ID
 DATE=$(date +"%d_%b_%Y")
 
-ARMS=(rrdb fno_pre fno_spectral fno_conv)
+# Index order must match 01_setup_encoders.sh. Task 4 is the PhysicsNeMo
+# calibration arm: identical to task 1 except for the backend.
+ARMS=(rrdb fno_pre fno_spectral fno_conv fno_pre_pnemo)
 ARM=${ARMS[$TASK]}
 NAME="fno_abl_diff_${ARM}"
 # The date is stamped at first submission. On requeue, {force_run_dir}/wandb_run_id.txt re-attaches

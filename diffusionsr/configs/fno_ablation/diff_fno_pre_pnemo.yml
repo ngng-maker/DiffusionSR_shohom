@@ -1,0 +1,40 @@
+# CALIBRATION ARM - FNO-A (upsample_mode: pre) under the PhysicsNeMo backend.
+#
+# Purpose: this arm exists ONLY to be compared against enc_fno_pre.yml / diff_fno_pre.yml, which
+# are the identical variant under the builtin backend. If the two agree, the backend is not a
+# confound and the all-builtin primary arms are defensible (and FNO-B, which requires builtin, can
+# stay in the study). If they diverge, that is itself a reportable finding.
+#
+# PARAMETER MATCHING REQUIRED BEFORE USE:
+# PhysicsNeMo's FNO has a different decoder (a ConvFullyConnected MLP) than the builtin body, so
+# these kwargs do NOT give the same parameter count as the builtin arm. Run, on TRACE with
+# physicsnemo installed:
+#     python -m diffusionsr.analysis.count_encoder_params --match 5904321 --backend physicsnemo
+# and update latent_channels / num_fno_modes / num_fno_layers below to the reported best match.
+# Until then this arm is confounded by size as well as backend.
+
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "temperature"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "huber"
+encoder_type: "fno"
+encoder_kwargs:
+  feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
+  latent_channels: 64
+  num_fno_layers: 4
+  num_fno_modes: [14, 13]     # sized to match RRDB's parameter count to within 1.5%
+  padding: 8                  # non-periodic padding; melt-pool cross-sections do not wrap
+  upsample_mode: "pre"
+  backend: "physicsnemo"      # the whole point of this arm
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_pre_pnemo"

@@ -15,6 +15,12 @@
 #   fno_pre       FNO-A, bicubic-to-HR then operator at HR          5,989,441 params  (1.014x)
 #   fno_spectral  FNO-B, operator at LR + spectral upsampling       5,961,089 params  (1.010x)
 #   fno_conv      FNO-C, operator at LR + RRDB's conv upsampling    6,071,873 params  (1.028x)
+# plus one calibration arm:
+#   fno_pre_pnemo FNO-A again under PhysicsNeMo. Compared against fno_pre (the same variant under
+#                 the builtin backend) it tests whether the backend is a confound. Non-blocking in
+#                 Phase 1: if physicsnemo is missing, the four primary arms still complete.
+#                 NOTE: run count_encoder_params --match 5904321 --backend physicsnemo on TRACE and
+#                 update its kwargs BEFORE trusting it, or it differs in size as well as backend.
 #
 # Phase 1  01_setup_encoders.sh   4 encoders, sequential, one GPU        -> stage-1 comparison
 # Phase 2  02_diffusion_array.sh  4 DDPMs, parallel array, after Phase 1 -> stage-2 comparison
@@ -43,12 +49,12 @@ if [ -n "${CONDA_ENV:-}" ]; then
   echo "Using conda env: $CONDA_ENV"
 fi
 
-echo "=== Phase 1: encoder pretraining (rrdb, fno_pre, fno_spectral, fno_conv) ==="
+echo "=== Phase 1: encoder pretraining (4 primary arms + 1 calibration arm) ==="
 # --parsable makes sbatch print just the job ID, so it can be captured for the dependency chain.
 ENC_JID=$(sbatch --parsable $EXPORT_ARG slurm/fno_ablation/01_setup_encoders.sh)
 echo "  Encoder job ID: $ENC_JID"
 
-echo "=== Phase 2: 4-run diffusion array — depends on $ENC_JID ==="
+echo "=== Phase 2: 5-run diffusion array — depends on $ENC_JID ==="
 # afterok means the array only starts if Phase 1 exited cleanly; a failed encoder must not silently
 # produce diffusion runs conditioned on a half-trained or missing checkpoint.
 DIFF_JID=$(sbatch --parsable \
@@ -57,7 +63,7 @@ DIFF_JID=$(sbatch --parsable \
   slurm/fno_ablation/02_diffusion_array.sh)
 echo "  Diffusion array job ID: $DIFF_JID"
 
-echo "=== Phase 3: 4-run eval array — depends on $DIFF_JID ==="
+echo "=== Phase 3: 5-run eval array — depends on $DIFF_JID ==="
 EVAL_JID=$(sbatch --parsable \
   --dependency=afterok:"$DIFF_JID" \
   $EXPORT_ARG \
@@ -76,6 +82,7 @@ echo "  0  rrdb          RRDB CNN baseline"
 echo "  1  fno_pre       FNO-A  bicubic-to-HR, operator at HR"
 echo "  2  fno_spectral  FNO-B  operator at LR, spectral upsampling (builtin backend)"
 echo "  3  fno_conv      FNO-C  operator at LR, RRDB conv upsampling"
+echo "  4  fno_pre_pnemo CALIBRATION: FNO-A under PhysicsNeMo (vs task 1 under builtin)"
 echo ""
 echo "Run slurm/fno_ablation/00_smoke_physicsnemo.sh FIRST if you have not already —"
 echo "it verifies the environment and the RRDB regression gate before any training starts."

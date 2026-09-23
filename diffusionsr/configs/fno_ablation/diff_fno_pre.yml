@@ -28,5 +28,6 @@ encoder_kwargs:
   num_fno_modes: [14, 13]     # sized to match RRDB's parameter count to within 1.5%
   padding: 8                  # non-periodic padding; melt-pool cross-sections do not wrap
   upsample_mode: "pre"
-  backend: "auto"             # physicsnemo when installed (TRACE), builtin otherwise
+  backend: "builtin"          # PINNED: "auto" would build a different architecture
+                              # depending on whether physicsnemo is importable
 encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_pre"
