@@ -19,6 +19,16 @@
 # (An earlier naive numel() comparison made the two backends look ~2x apart. That was an artefact
 # of physicsnemo storing spectral weights as real tensors while the builtin body stores them as
 # complex64; counting real degrees of freedom normalises both.)
+#
+# SIZING (corrected 2026-09-23 for the REAL dataset geometry):
+#   data_fields reports **downscale factor 2**, not 4. RRDB at factor 2 is 5,867,393 real DOF.
+#   All three FNO variants deliberately share an IDENTICAL trunk - latent 32, modes [18,20],
+#   4 layers - so A/B/C differ ONLY in where upsampling happens. An earlier revision gave each
+#   variant a different trunk (latent 32/64/80, modes [18,20]/[9,10]/[7,8]), which confounded the
+#   upsampling question with trunk width and mode count.
+#   fno_conv's extra ~74k params are its upsampling stack, which is inherent to that variant.
+#   'real DOF' counts complex spectral weights as 2 scalars; torch numel() counts them as 1.
+#   Verify: python -m diffusionsr.analysis.count_encoder_params --upscale_factor 2 --hr_side 80
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"

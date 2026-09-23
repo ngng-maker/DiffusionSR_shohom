@@ -2,12 +2,22 @@
 # FNO-B: operator runs on the 20x20 LR grid; upsampling is done by zero-padding the
 # spectrum in the final spectral layer. Most operator-native variant.
 # Requires backend: builtin - physicsnemo does not expose per-layer output sizing.
-# Measured: 5,923,905 real DOF  (1.003x)#
+# Measured: 5,906,273 real DOF  (1.007x)
 # SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
 # The FNO's spectral weights are complex64; each element carries an independent real and imaginary
 # part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
 # and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
 #   python -m diffusionsr.analysis.count_encoder_params
+#
+# SIZING (corrected 2026-09-23 for the REAL dataset geometry):
+#   data_fields reports **downscale factor 2**, not 4. RRDB at factor 2 is 5,867,393 real DOF.
+#   All three FNO variants deliberately share an IDENTICAL trunk - latent 32, modes [18,20],
+#   4 layers - so A/B/C differ ONLY in where upsampling happens. An earlier revision gave each
+#   variant a different trunk (latent 32/64/80, modes [18,20]/[9,10]/[7,8]), which confounded the
+#   upsampling question with trunk width and mode count.
+#   fno_conv's extra ~74k params are its upsampling stack, which is inherent to that variant.
+#   'real DOF' counts complex spectral weights as 2 scalars; torch numel() counts them as 1.
+#   Verify: python -m diffusionsr.analysis.count_encoder_params --upscale_factor 2 --hr_side 80
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
@@ -28,9 +38,9 @@ loss_type: "huber"
 encoder_type: "fno"
 encoder_kwargs:
   feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
-  latent_channels: 64
+  latent_channels: 32
   num_fno_layers: 4
-  num_fno_modes: [9, 10]
+  num_fno_modes: [18, 20]
   padding: 4
   upsample_mode: "spectral"
   backend: "builtin"

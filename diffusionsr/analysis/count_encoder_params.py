@@ -82,7 +82,7 @@ def report_configs(paths, upscale_factor, in_channels, out_channels, target):
 
 
 def search_match(target, backend, upscale_factor, in_channels, out_channels,
-                 feature_channels, upsample_mode, padding, top_n):
+                 feature_channels, upsample_mode, padding, top_n, hr_side):
     """Find FNO hyperparameters whose parameter count is closest to `target`.
 
     A naive grid over a hand-picked list of mode pairs misses good matches, because parameter count
@@ -104,7 +104,6 @@ def search_match(target, backend, upscale_factor, in_channels, out_channels,
     # upsamples to HR first, so it works on the HR grid; 'spectral' and 'conv' stay at LR. Exceeding
     # the cap is silently a no-op (SpectralConv2d clamps), which would make a "match" fictitious -
     # the extra weights would exist but never be read.
-    hr_side = 80 if upscale_factor == 4 else 80          # SS316L / Ti-6Al-4V cross-sections are 80x80
     grid_side = hr_side if upsample_mode == "pre" else hr_side // upscale_factor
     mode_cap = grid_side // 2
     print(f"Nyquist cap for upsample_mode={upsample_mode!r}: {mode_cap} modes "
@@ -192,10 +191,16 @@ def main():
     parser.add_argument("--feature_channels", type=int, default=64,
                         help="conditioning width; must equal the U-Net's init_dim")
     parser.add_argument("--padding", type=int, default=8, help="non-periodic FFT padding margin")
-    parser.add_argument("--upscale_factor", type=int, default=4, help="HR/LR ratio, 4 for the SS316L 4x task")
+    parser.add_argument("--upscale_factor", type=int, default=2,
+                        help="HR/LR ratio. The data_fields dataset reports 2; the paper's Ti64 task is 4.")
     parser.add_argument("--in_channels", type=int, default=1)
     parser.add_argument("--out_channels", type=int, default=1)
     parser.add_argument("--top_n", type=int, default=8, help="how many candidates to print (--match only)")
+    # The Nyquist cap depends on the grid the operator actually runs on, which depends on the HR
+    # size. Previously hardcoded to 80; wrong for any other dataset, and the cap being wrong makes a
+    # reported "match" fictitious because modes above it are silently clamped away unused.
+    parser.add_argument("--hr_side", type=int, default=80,
+                        help="HR grid side length (dataset.img_shape). Determines the Nyquist mode cap.")
     args = parser.parse_args()
 
     # An RRDB built at the study's settings is the natural reference point, so compute it either way
@@ -211,7 +216,7 @@ def main():
     if args.match is not None:
         search_match(args.match, args.backend, args.upscale_factor, args.in_channels,
                      args.out_channels, args.feature_channels, args.upsample_mode,
-                     args.padding, args.top_n)
+                     args.padding, args.top_n, args.hr_side)
         return
 
     # Default to reporting every arm in the study when no explicit list is given.
