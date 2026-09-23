@@ -1,7 +1,12 @@
 # Stage 1 - encoder pretraining (fno_pre)
 # FNO-A: bicubic-upsample LR to HR, then run the operator entirely at HR.
-# Primary FNO variant. 80x80 working grid lifts the Nyquist mode ceiling to 40.
-# Measured parameter count: 5,989,441  (1.014x RRDB)
+# Primary FNO variant. The 80x80 working grid lifts the Nyquist mode ceiling to 40.
+# Measured: 5,906,273 real DOF  (1.000x)#
+# SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
+# The FNO's spectral weights are complex64; each element carries an independent real and imaginary
+# part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
+# and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
+#   python -m diffusionsr.analysis.count_encoder_params
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
@@ -22,10 +27,9 @@ loss_type: "huber"
 encoder_type: "fno"
 encoder_kwargs:
   feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
-  latent_channels: 64
+  latent_channels: 32
   num_fno_layers: 4
-  num_fno_modes: [14, 13]     # sized to match RRDB's parameter count to within 1.5%
-  padding: 8                  # non-periodic padding; melt-pool cross-sections do not wrap
+  num_fno_modes: [18, 20]
+  padding: 8
   upsample_mode: "pre"
-  backend: "builtin"          # PINNED: "auto" would build a different architecture
-                              # depending on whether physicsnemo is importable
+  backend: "builtin"

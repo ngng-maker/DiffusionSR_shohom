@@ -1,7 +1,12 @@
 # Stage 1 - encoder pretraining (fno_conv)
 # FNO-C: operator runs at LR, then RRDB's own nearest-interp + conv upsampling stack.
 # Tightest controlled comparison - isolates the trunk as the only difference.
-# Measured parameter count: 6,071,873  (1.028x RRDB)
+# Measured: 5,883,505 real DOF  (0.996x)#
+# SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
+# The FNO's spectral weights are complex64; each element carries an independent real and imaginary
+# part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
+# and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
+#   python -m diffusionsr.analysis.count_encoder_params
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
@@ -21,10 +26,10 @@ use_pretrained: False
 loss_type: "huber"
 encoder_type: "fno"
 encoder_kwargs:
-  feature_channels: 64
-  latent_channels: 96
-  num_fno_layers: 5
-  num_fno_modes: [8, 8]       # same Nyquist cap as fno_spectral
+  feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
+  latent_channels: 80
+  num_fno_layers: 4
+  num_fno_modes: [7, 8]
   padding: 4
   upsample_mode: "conv"
-  backend: "builtin"       # PINNED for reproducibility
+  backend: "builtin"

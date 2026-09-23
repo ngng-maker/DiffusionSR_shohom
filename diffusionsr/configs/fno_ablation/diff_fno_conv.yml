@@ -1,9 +1,13 @@
-# Stage 2 - conditional diffusion on the frozen fno_conv encoder
+# Stage 2 - conditional diffusion on the frozen fno_conv encoder (fno_conv)
 # FNO-C: operator runs at LR, then RRDB's own nearest-interp + conv upsampling stack.
 # Tightest controlled comparison - isolates the trunk as the only difference.
+# Measured: 5,883,505 real DOF  (0.996x)#
+# SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
+# The FNO's spectral weights are complex64; each element carries an independent real and imaginary
+# part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
+# and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
+#   python -m diffusionsr.analysis.count_encoder_params
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype diffusion
-# encoder_type/encoder_kwargs MUST match enc_fno_conv.yml exactly, or the stage-1
-# checkpoint will not load into the rebuilt architecture.
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
 downscale_method: "direct"
@@ -22,11 +26,11 @@ use_pretrained: False
 loss_type: "huber"
 encoder_type: "fno"
 encoder_kwargs:
-  feature_channels: 64
-  latent_channels: 96
-  num_fno_layers: 5
-  num_fno_modes: [8, 8]       # same Nyquist cap as fno_spectral
+  feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
+  latent_channels: 80
+  num_fno_layers: 4
+  num_fno_modes: [7, 8]
   padding: 4
   upsample_mode: "conv"
-  backend: "builtin"       # PINNED for reproducibility
+  backend: "builtin"
 encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_conv"

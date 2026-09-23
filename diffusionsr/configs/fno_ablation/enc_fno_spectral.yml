@@ -1,8 +1,13 @@
 # Stage 1 - encoder pretraining (fno_spectral)
-# FNO-B: operator runs on the 20x20 LR grid; upsampling is done by zero-padding
-# the spectrum in the final spectral layer. Most operator-native variant.
+# FNO-B: operator runs on the 20x20 LR grid; upsampling is done by zero-padding the
+# spectrum in the final spectral layer. Most operator-native variant.
 # Requires backend: builtin - physicsnemo does not expose per-layer output sizing.
-# Measured parameter count: 5,961,089  (1.010x RRDB)
+# Measured: 5,923,905 real DOF  (1.003x)#
+# SIZING: matched against RRDB's 5,904,321 REAL degrees of freedom, not raw torch numel().
+# The FNO's spectral weights are complex64; each element carries an independent real and imaginary
+# part, so numel() undercounts them ~2x. An earlier revision of these configs matched on numel()
+# and consequently gave every FNO arm ~2.02x RRDB's actual capacity. Verify with:
+#   python -m diffusionsr.analysis.count_encoder_params
 # Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
 
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
@@ -22,10 +27,10 @@ use_pretrained: False
 loss_type: "huber"
 encoder_type: "fno"
 encoder_kwargs:
-  feature_channels: 64
-  latent_channels: 96         # wider latent compensates for the mode cap below
-  num_fno_layers: 5
-  num_fno_modes: [8, 8]       # 20x20 LR grid caps usable modes at Nyquist = 10
+  feature_channels: 64        # must equal the U-Net's init_dim (64 when enc_output is false)
+  latent_channels: 64
+  num_fno_layers: 4
+  num_fno_modes: [9, 10]
   padding: 4
   upsample_mode: "spectral"
-  backend: "builtin"          # required for this variant
+  backend: "builtin"

@@ -29,11 +29,25 @@ from diffusionsr.models.encoder_factory import build_encoder  # Single construct
 
 
 def count_parameters(model) -> int:
-    """Total number of learnable scalars in a module."""
-    # .parameters() yields every registered Parameter tensor (recursively through submodules);
-    # .numel() is the element count of one tensor, so the sum is the model's total parameter count.
-    # Complex parameters (the FNO spectral weights) count their real and imaginary parts separately,
-    # which is the correct comparison against a real-valued CNN.
+    """Total number of learnable REAL scalars (degrees of freedom) in a module.
+
+    Not simply `sum(p.numel())`. torch's `.numel()` on a complex tensor returns the number of
+    COMPLEX elements, and an FNO's spectral weights are complex64 - each carries an independent
+    real and imaginary part, i.e. two learnable scalars. Summing raw numel() therefore undercounts
+    an FNO by ~2x on exactly the weights that dominate its size, and comparing that against a
+    real-valued CNN like RRDB is not a like-for-like comparison: it silently gives the FNO twice
+    the capacity at nominally "equal" parameter count.
+
+    Real DOF is the right measure here because it is what determines capacity, optimizer state
+    size and memory. Use `count_parameters_naive` if you specifically need the element count.
+    """
+    # p.is_complex() is True for complex64/complex128 parameters; those contribute two real scalars
+    # per element, real parameters contribute one.
+    return sum(p.numel() * (2 if p.is_complex() else 1) for p in model.parameters())
+
+
+def count_parameters_naive(model) -> int:
+    """Raw element count, counting each complex parameter as one. Reported for transparency only."""
     return sum(p.numel() for p in model.parameters())
 
 
@@ -51,44 +65,96 @@ def encoder_from_config(path: str, upscale_factor: int, in_channels: int, out_ch
 
 def report_configs(paths, upscale_factor, in_channels, out_channels, target):
     """Print one row per config: architecture, backend, parameter count, ratio to target."""
-    print(f"{'config':<30} {'type':<6} {'backend':<12} {'params':>12} {'vs target':>10}")
-    print("-" * 74)
+    print(f"{'config':<30} {'type':<6} {'backend':<12} {'real DOF':>12} {'vs target':>10} {'elements':>12}")
+    print("-" * 88)
     for path in paths:
         try:
             model, etype, _ = encoder_from_config(path, upscale_factor, in_channels, out_channels)
         except Exception as exc:  # A config may name a backend this environment cannot build
             print(f"{os.path.basename(path):<30} {'-':<6} {'-':<12} {'ERROR':>12}  {exc}")
             continue
-        n = count_parameters(model)
+        n = count_parameters(model)              # real DOF - the comparable number
+        n_naive = count_parameters_naive(model)  # element count, for transparency
         # getattr with a default because RRDBNet has no `backend` attribute at all.
         backend = getattr(model, "backend", "-")
         ratio = f"{n / target:.3f}x" if target else "-"
-        print(f"{os.path.basename(path):<30} {etype:<6} {backend:<12} {n:>12,} {ratio:>10}")
+        print(f"{os.path.basename(path):<30} {etype:<6} {backend:<12} {n:>12,} {ratio:>10} {n_naive:>12,}")
 
 
 def search_match(target, backend, upscale_factor, in_channels, out_channels,
                  feature_channels, upsample_mode, padding, top_n):
-    """Grid-search FNO hyperparameters for the closest parameter count to `target`."""
-    # Search space. Latent width and mode count trade off against each other: spectral weights scale
-    # as latent^2 * modes_x * modes_y per layer, so many combinations hit a similar total by
-    # different routes. Reporting several lets you pick on grounds other than size alone.
-    latents = [32, 48, 56, 64, 80, 96, 112, 128]
-    modes = [(8, 8), (10, 10), (12, 12), (13, 14), (14, 13), (14, 14), (16, 11), (16, 12), (16, 16), (20, 20)]
-    layers = [4, 5]
+    """Find FNO hyperparameters whose parameter count is closest to `target`.
 
-    results = []
-    for latent, mode, n_layers in itertools.product(latents, modes, layers):
+    A naive grid over a hand-picked list of mode pairs misses good matches, because parameter count
+    depends on the PRODUCT m1*m2 and the useful products are spread unevenly across that list. So
+    instead of guessing, this calibrates the cost model per (latent, layers) from two measurements
+    and then tests only the mode pairs predicted to land near the target.
+
+    Spectral weights dominate and scale as  k * latent^2 * m1 * m2 * layers + overhead,  linear in
+    the product m1*m2 for fixed latent and layers. Two probes therefore pin down the line exactly:
+
+        slope    = (n(256) - n(64)) / (256 - 64)      cost per unit of m1*m2
+        overhead = n(64) - slope * 64                 everything not in the spectral weights
+        wanted   = (target - overhead) / slope        the product that hits the target
+
+    which is inverted to give the wanted product, and the nearby integer factorisations are then
+    built and measured exactly rather than trusted.
+    """
+    # Nyquist caps the useful mode count at half the grid the operator actually runs on. 'pre'
+    # upsamples to HR first, so it works on the HR grid; 'spectral' and 'conv' stay at LR. Exceeding
+    # the cap is silently a no-op (SpectralConv2d clamps), which would make a "match" fictitious -
+    # the extra weights would exist but never be read.
+    hr_side = 80 if upscale_factor == 4 else 80          # SS316L / Ti-6Al-4V cross-sections are 80x80
+    grid_side = hr_side if upsample_mode == "pre" else hr_side // upscale_factor
+    mode_cap = grid_side // 2
+    print(f"Nyquist cap for upsample_mode={upsample_mode!r}: {mode_cap} modes "
+          f"(operator runs on a {grid_side}x{grid_side} grid)")
+    print()
+
+    latents = [24, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128]
+    layer_counts = [4, 5]
+
+    def build(latent, m1, m2, n_layers):
+        """Construct one candidate, returning None if this backend cannot build it."""
         kwargs = dict(feature_channels=feature_channels, latent_channels=latent,
-                      num_fno_layers=n_layers, num_fno_modes=list(mode),
+                      num_fno_layers=n_layers, num_fno_modes=[m1, m2],
                       padding=padding, upsample_mode=upsample_mode, backend=backend)
         try:
-            model = build_encoder("fno", upscale_factor=upscale_factor, in_channels=in_channels,
-                                  out_channels=out_channels, encoder_kwargs=kwargs)
+            return build_encoder("fno", upscale_factor=upscale_factor, in_channels=in_channels,
+                                 out_channels=out_channels, encoder_kwargs=kwargs)
         except Exception:
-            continue  # Skip combinations this backend rejects (e.g. spectral mode on physicsnemo)
-        n = count_parameters(model)
-        # Rank by relative distance from the target, so the result is scale-independent.
-        results.append((abs(n / target - 1.0), latent, mode, n_layers, n))
+            return None
+
+    results = []
+    for latent, n_layers in itertools.product(latents, layer_counts):
+        # Two probes at known products (8*8=64 and 16*16=256) to calibrate the line.
+        lo, hi = build(latent, 8, 8, n_layers), build(latent, 16, 16, n_layers)
+        if lo is None or hi is None:
+            continue
+        n_lo, n_hi = count_parameters(lo), count_parameters(hi)
+        slope = (n_hi - n_lo) / (256 - 64)
+        if slope <= 0:
+            continue  # Degenerate; nothing to solve for
+        overhead = n_lo - slope * 64
+        wanted = (target - overhead) / slope
+        if wanted < 1:
+            continue  # Even the smallest operator overshoots at this latent/layer combination
+
+        # Enumerate integer factorisations near the wanted product. Both factors are capped at the
+        # Nyquist limit, and near-square pairs are preferred for a square grid, so the truncation is
+        # roughly isotropic rather than arbitrarily favouring one axis.
+        candidates = set()
+        for m1 in range(4, mode_cap + 1):
+            m2 = max(4, min(mode_cap, round(wanted / m1)))
+            candidates.add((m1, m2))
+        # Score by predicted distance first, and only build the most promising handful exactly.
+        ranked = sorted(candidates, key=lambda mm: (abs(mm[0] * mm[1] - wanted), abs(mm[0] - mm[1])))
+        for m1, m2 in ranked[:4]:
+            model = build(latent, m1, m2, n_layers)
+            if model is None:
+                continue
+            n = count_parameters(model)
+            results.append((abs(n / target - 1.0), latent, (m1, m2), n_layers, n))
 
     if not results:
         print(f"No buildable configuration found for backend={backend!r}.")
@@ -109,7 +175,7 @@ def search_match(target, backend, upscale_factor, in_channels, out_channels,
     print(f"  num_fno_layers: {n_layers}")
     print(f"  num_fno_modes: {list(mode)}")
     print(f"  backend: \"{backend}\"")
-    print(f"# -> {n:,} params ({n / target:.3f}x target)")
+    print(f"# -> {n:,} real DOF ({n / target:.3f}x target)")
 
 
 def main():
@@ -137,7 +203,9 @@ def main():
     rrdb = build_encoder("rrdb", upscale_factor=args.upscale_factor,
                          in_channels=args.in_channels, out_channels=args.out_channels)
     rrdb_params = count_parameters(rrdb)
-    print(f"RRDB reference (num_blocks=8, channels=64, upscale={args.upscale_factor}): {rrdb_params:,} params")
+    print(f"RRDB reference (num_blocks=8, channels=64, upscale={args.upscale_factor}): {rrdb_params:,} real DOF")
+    print("NOTE: 'real DOF' counts each complex FNO weight as 2 scalars (re + im). Raw torch numel()")
+    print("      counts it as 1, which undercounts an FNO by ~2x against a real-valued CNN.")
     print()
 
     if args.match is not None:
