@@ -681,10 +681,9 @@ class DiffusionModel():
             epoch = checkpoint[2]
             self.step = checkpoint[3]
             self.start_epoch = epoch
-            self.save_prefix = 'restart'
         else:
             self.start_epoch = 0
-        
+
         self.dev_loader = DataLoader(
             self.dev_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
 
@@ -693,6 +692,17 @@ class DiffusionModel():
         all_test_losses = []
         unaveraged_test_losses = []
         best_val_loss = float('inf')
+        if restart:
+            # Restore best_val_loss so best-model tracking is not reset.
+            if len(checkpoint) > 4:
+                best_val_loss = checkpoint[4]
+            # Restore loss history so .txt files accumulate all epochs, not just post-restart.
+            _lf = os.path.join(self.results_folder, self.save_prefix + "loss_epoch.txt")
+            if os.path.exists(_lf):
+                all_train_losses = list(np.loadtxt(_lf).reshape(-1))
+            _vlf = os.path.join(self.results_folder, self.save_prefix + "validation_loss_epoch.txt")
+            if os.path.exists(_vlf):
+                all_test_losses = list(np.loadtxt(_vlf).reshape(-1))
 
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
             # Resample a random subset of the training set each epoch
@@ -794,12 +804,13 @@ class DiffusionModel():
             wandb.log({'train_loss': mean_loss, 'val_loss': test_mean_loss}, step=_wb_step)
 
             # Save checkpoint every epoch so SLURM preemption/requeue can restore it.
-            states = [self.model.state_dict(), self.optimizer.state_dict(), epoch, step]
-            ckpt_path = os.path.join(self.results_folder, "ckpt.pth")
-            torch.save(states, ckpt_path)
             is_best = test_mean_loss < best_val_loss
             if is_best:
                 best_val_loss = test_mean_loss
+            states = [self.model.state_dict(), self.optimizer.state_dict(), epoch, step, best_val_loss]
+            ckpt_path = os.path.join(self.results_folder, "ckpt.pth")
+            torch.save(states, ckpt_path)
+            if is_best:
                 torch.save(states, os.path.join(self.results_folder, "bestmodel_saved.pth"))
             _run_name = wandb.run.name if wandb.run is not None else "run"
             if is_best:

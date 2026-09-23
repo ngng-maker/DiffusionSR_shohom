@@ -155,18 +155,32 @@ _MODEL_LABELS = {
 
 
 def _init_wandb():
-    """Init W&B with a structured run name, group, and tags. Returns the run name string."""
+    """Init W&B — resumes the same run on SLURM restart, creates a new run otherwise."""
     label = _MODEL_LABELS.get(modeltype, modeltype)
     run_name = args.wandb_run_name or make_run_name(label, suffix=downscale_method)
-    wandb.init(
-        project="Flow3D_SuperResolution",
-        entity=os.getenv("WANDB_ENTITY"),
-        name=run_name,
-        group=label,
-        tags=[label, downscale_method, conditioning],
-        config=combined_dict,
-    )
-    return run_name
+    run_id_file = os.path.join(args.force_run_dir, 'wandb_run_id.txt') if args.force_run_dir else None
+    if run_id_file and os.path.exists(run_id_file):
+        with open(run_id_file) as _f:
+            _saved_id = _f.read().strip()
+        wandb.init(
+            id=_saved_id,
+            resume='must',
+            project="Flow3D_SuperResolution",
+            entity=os.getenv("WANDB_ENTITY"),
+        )
+    else:
+        wandb.init(
+            project="Flow3D_SuperResolution",
+            entity=os.getenv("WANDB_ENTITY"),
+            name=run_name,
+            group=label,
+            tags=[label, downscale_method, conditioning],
+            config=combined_dict,
+        )
+        if run_id_file:
+            with open(run_id_file, 'w') as _f:
+                _f.write(wandb.run.id)
+    return wandb.run.name
 
 
 # ── MOBILENET ─────────────────────────────────────────────────────────────────
