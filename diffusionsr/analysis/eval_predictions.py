@@ -57,9 +57,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_name',         required=True,  help='short experiment id, e.g. abl_fm_enc_sdf')
     parser.add_argument('--wandb_run_name',   required=True,  help='W&B display name of the training run')
-    parser.add_argument('--model_type',       required=True,  choices=['flow_matching', 'ldm'])
+    parser.add_argument('--model_type',       required=True,  choices=['diffusion', 'flow_matching', 'ldm'])
     parser.add_argument('--model_dir',        required=True,  help='results_folder for the trained model')
-    parser.add_argument('--enc_dir',          default=None,   help='RRDB encoder folder; omit for no-encoder runs')
+    parser.add_argument('--enc_dir',          default=None,   help='encoder folder; omit for no-encoder runs')
+    # The encoder architecture must be rebuilt exactly as it was trained before its checkpoint can
+    # be loaded. Passing the SAME yaml used for training is the safest way to guarantee that, since
+    # it removes any chance of the eval-side kwargs drifting from the train-side ones.
+    parser.add_argument('--config',           default=None,
+                        help='training config yaml; read for encoder_type/encoder_kwargs so the '
+                             'encoder is rebuilt identically to how it was trained')
+    parser.add_argument('--sampler',          default=None,
+                        help="override the sampler: DDPM|DDIM for --model_type diffusion, "
+                             "euler for flow_matching. Defaults per model type.")
+    parser.add_argument('--skip',             type=int, default=50,
+                        help='DDIM stride; 50 matches the paper''s 50x sampling speedup')
     parser.add_argument('--vae_dir',          default=None,   help='VAE folder; required for LDM runs')
     parser.add_argument('--data_root',        required=True)
     parser.add_argument('--field_names',      nargs='+',      default=['temperature'])
@@ -82,6 +93,18 @@ def main():
     device = args.device if (args.device == 'cpu' or torch.cuda.is_available()) else 'cpu'
     encoding = args.enc_dir is not None
 
+    # ── Encoder architecture (must match training exactly) ────────────────────
+    # Defaults reproduce the historical behaviour: an absent --config means the RRDB baseline,
+    # which is what every run predating the FNO study used.
+    encoder_type, encoder_kwargs = 'rrdb', None
+    if args.config:
+        import yaml
+        with open(args.config) as _f:
+            _cfg = yaml.safe_load(_f) or {}
+        encoder_type = _cfg.get('encoder_type', 'rrdb')
+        encoder_kwargs = _cfg.get('encoder_kwargs', None)
+        print(f'Encoder from config: type={encoder_type} kwargs={encoder_kwargs}')
+
     # ── Datasets ──────────────────────────────────────────────────────────────
     from diffusionsr.datasets.dataset import SimulationXZDataset
     kw = dict(downscale_method=args.downscale_method, root_folder=args.data_root,
@@ -90,23 +113,24 @@ def main():
     print(f'Fields: {train_ds.field_names}  |  n_test={len(test_ds)}')
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    if args.model_type == 'flow_matching':
+    # Shared across all three model types; encoder_type/encoder_kwargs are what let the eval
+    # reconstruct an FNO encoder rather than defaulting to RRDB and failing load_state_dict.
+    common = dict(
+        results_folder=args.model_dir, lr_encoder_folder=args.enc_dir,
+        train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
+        timesteps=args.timesteps, conditioning=args.conditioning,
+        encoding=encoding, schedule=args.schedule, device=device, enc_output=False,
+        encoder_type=encoder_type, encoder_kwargs=encoder_kwargs,
+    )
+    if args.model_type == 'diffusion':
+        from diffusionsr.runners.train_diffusion import DiffusionModel
+        model = DiffusionModel(**common)
+    elif args.model_type == 'flow_matching':
         from diffusionsr.runners.train_flow_matching import FlowMatchingModel
-        model = FlowMatchingModel(
-            results_folder=args.model_dir, lr_encoder_folder=args.enc_dir,
-            train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-            timesteps=args.timesteps, conditioning=args.conditioning,
-            encoding=encoding, schedule=args.schedule, device=device, enc_output=False,
-        )
+        model = FlowMatchingModel(**common)
     else:
         from diffusionsr.runners.train_ldm import LDMModel
-        model = LDMModel(
-            vae_folder=args.vae_dir, results_folder=args.model_dir,
-            lr_encoder_folder=args.enc_dir,
-            train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-            timesteps=args.timesteps, conditioning=args.conditioning,
-            encoding=encoding, schedule=args.schedule, device=device, enc_output=False,
-        )
+        model = LDMModel(vae_folder=args.vae_dir, **common)
     model.load_saved_model()
     print(f'Model loaded from {args.model_dir}')
 
@@ -114,6 +138,9 @@ def main():
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)
     all_preds, all_gts, all_vae = [], [], []
     is_ldm = args.model_type == 'ldm'
+    is_ddpm = args.model_type == 'diffusion'
+    # DDIM with skip=50 is the paper's sampling configuration (50x faster than full DDPM).
+    ddpm_sampler = args.sampler or 'DDIM'
 
     for i, batch in enumerate(test_loader):
         _, hr_b, lr_b, ul_b = batch[:4]
@@ -129,9 +156,15 @@ def main():
                 all_vae.extend(
                     test_ds.unscale_data(vr[s], input_type='hr') for s in range(hr_b.shape[0])
                 )
+            elif is_ddpm:
+                samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
+                                           x_e=xe, sampler=ddpm_sampler, skip=args.skip)
+                pred = samps[-1].cpu().numpy()
+                del samps; torch.cuda.empty_cache()
             else:
                 samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
-                                           x_e=xe, sampler='euler', n_steps=args.fm_n_steps)
+                                           x_e=xe, sampler=args.sampler or 'euler',
+                                           n_steps=args.fm_n_steps)
                 pred = samps[-1].cpu().numpy()
                 del samps; torch.cuda.empty_cache()
 

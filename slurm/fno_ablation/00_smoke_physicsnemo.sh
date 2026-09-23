@@ -19,15 +19,20 @@
 # Submit with:
 #   sbatch slurm/fno_ablation/00_smoke_physicsnemo.sh
 
-set -euo pipefail  # Abort on any error, on undefined variables, and on failures inside pipelines
+set -eo pipefail  # Abort on any error and on failures inside pipelines (matches the other scripts here)
+
+export WANDB_ENTITY=ngng-  # Several code paths raise if this is unset, even when W&B is unused
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom  # Repo root on the cluster filesystem
-# Conda environment to use. Defaults to the existing project env, but can be overridden at submit
-# time without editing this file, e.g.:  sbatch --export=ALL,CONDA_ENV=diffusion_SR_fno <script>
-CONDA_ENV="${CONDA_ENV:-diffusion_SR}"
+# Conda environment to use. Defaults to the existing project env; override at submit time with
+#   sbatch --export=ALL,CONDA_ENV=/trace/group/forgelab/ngng/envs/diffusion_SR_fno <script>
+CONDA_ENV="${CONDA_ENV:-/trace/group/forgelab/ngng/envs/diffusion_SR}"
 
 cd "$REPO"                       # Run everything from the repo root so module imports resolve
-conda activate "$CONDA_ENV"      # Activate the selected environment
+# A non-interactive SLURM shell has no `conda` shell function until this profile script is sourced;
+# calling `conda activate` without it fails with "shell has not been properly configured".
+source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
+conda activate "$CONDA_ENV"
 echo "Using conda env: $CONDA_ENV"
 
 mkdir -p logs/fno_ablation       # SLURM does not create the log directory itself; missing it silently drops output
