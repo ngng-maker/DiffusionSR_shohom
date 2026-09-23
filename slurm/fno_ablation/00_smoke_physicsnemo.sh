@@ -33,6 +33,16 @@ cd "$REPO"                       # Run everything from the repo root so module i
 # calling `conda activate` without it fails with "shell has not been properly configured".
 source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate "$CONDA_ENV"
+# Optional venv overlay. `conda create --clone` of a CUDA torch env copies 8-15 GB of small files
+# across a shared parallel filesystem and can take an hour; a venv created with
+# --system-site-packages inherits the conda env's packages and adds only the extra ones, in seconds.
+# Both activations are required: conda first for the CUDA shared libraries, then the overlay so its
+# site-packages take precedence. Use with:
+#   sbatch --export=ALL,PY_OVERLAY=/trace/group/forgelab/ngng/envs/pnemo_overlay <script>
+if [ -n "${PY_OVERLAY:-}" ]; then
+  source "$PY_OVERLAY/bin/activate"
+  echo "Using venv overlay: $PY_OVERLAY"
+fi
 echo "Using conda env: $CONDA_ENV"
 
 mkdir -p logs/fno_ablation       # SLURM does not create the log directory itself; missing it silently drops output

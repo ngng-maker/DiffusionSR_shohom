@@ -8,6 +8,10 @@
 # To use a conda env with PhysicsNeMo installed:
 #   CONDA_ENV=/trace/group/forgelab/ngng/envs/diffusion_SR_fno bash slurm/fno_ablation/submit_all.sh
 #
+# Or, much faster than cloning an env, layer a venv on top of the existing one:
+#   python -m venv --system-site-packages /trace/group/forgelab/ngng/envs/pnemo_overlay
+#   PY_OVERLAY=/trace/group/forgelab/ngng/envs/pnemo_overlay bash slurm/fno_ablation/submit_all.sh
+#
 # What this compares
 # ------------------
 # Four arms, identical in every respect except which conditioning encoder supplies x_e:
@@ -43,10 +47,20 @@ cd "$REPO"
 mkdir -p logs/fno_ablation
 
 # Propagate the env choice to every phase so all three run in the same interpreter.
-EXPORT_ARG=""
+EXPORTS=()
 if [ -n "${CONDA_ENV:-}" ]; then
-  EXPORT_ARG="--export=ALL,CONDA_ENV=$CONDA_ENV"
+  EXPORTS+=("CONDA_ENV=$CONDA_ENV")
   echo "Using conda env: $CONDA_ENV"
+fi
+if [ -n "${PY_OVERLAY:-}" ]; then
+  EXPORTS+=("PY_OVERLAY=$PY_OVERLAY")
+  echo "Using venv overlay: $PY_OVERLAY"
+fi
+EXPORT_ARG=""
+if [ ${#EXPORTS[@]} -gt 0 ]; then
+  # IFS=, joins the array with commas for sbatch's --export=ALL,K=V,K=V syntax; the subshell
+  # keeps the IFS change from leaking into the rest of the script.
+  EXPORT_ARG="--export=ALL,$(IFS=,; echo "${EXPORTS[*]}")"
 fi
 
 echo "=== Phase 1: encoder pretraining (4 primary arms + 1 calibration arm) ==="
