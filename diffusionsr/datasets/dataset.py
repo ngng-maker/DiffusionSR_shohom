@@ -261,6 +261,21 @@ class SimulationXZDataset(Dataset):
             for name, data in data_to_save.items():
                 np.save(os.path.join(statistics_dir, name), data)
 
+            # Global (per-channel) stats: reduce over samples AND spatial dims
+            global_data = {
+                'global_mean_hr':          all_hr.mean(axis=(0, 2, 3)),
+                'global_std_hr':           all_hr.std(axis=(0, 2, 3)),
+                'global_mean_lr':          all_lr.mean(axis=(0, 2, 3)),
+                'global_std_lr':           all_lr.std(axis=(0, 2, 3)),
+                'global_mean_upscaled_lr': all_upscaled_lr.mean(axis=(0, 2, 3)),
+                'global_std_upscaled_lr':  all_upscaled_lr.std(axis=(0, 2, 3)),
+                'global_mean_resid':       all_residuals.mean(axis=(0, 2, 3)),
+                'global_std_resid':        all_residuals.std(axis=(0, 2, 3)),
+            }
+            for name, data in global_data.items():
+                np.save(os.path.join(statistics_dir, name), data)
+                setattr(self, name, data)  # also set as instance attr (no subsetting needed; already filtered)
+
             # Flag indicates that the statistics have been pre-computed
             np.savetxt(os.path.join(statistics_dir, 'flag'), np.array([0]))
 
@@ -294,6 +309,35 @@ class SimulationXZDataset(Dataset):
                 if stat.ndim == 3 and stat.shape[0] > self.num_fields:
                     setattr(self, attr, stat[self.field_idxs])
 
+            # Load global (per-channel) stats; derive from pixel-wise if old cache lacks them
+            _global_attrs = ['global_std_hr','global_mean_hr','global_std_lr','global_mean_lr',
+                             'global_std_upscaled_lr','global_mean_upscaled_lr',
+                             'global_std_resid','global_mean_resid']
+            _have_global = all(
+                os.path.exists(os.path.join(self.stats_path, f'{a}.npy'))
+                for a in _global_attrs
+            )
+            if _have_global:
+                for attr in _global_attrs:
+                    setattr(self, attr, np.load(os.path.join(self.stats_path, f'{attr}.npy')))
+            else:
+                # Old cache: derive per-channel global stats from pixel-wise via law of total variance
+                for base in ['hr', 'lr', 'upscaled_lr', 'resid']:
+                    pix_mean = getattr(self, f'mean_{base}')   # (C, H, W)
+                    pix_std  = getattr(self, f'std_{base}')
+                    g_mean = pix_mean.mean(axis=(-2, -1))
+                    g_std  = np.sqrt(np.maximum(
+                        (pix_std**2 + pix_mean**2).mean(axis=(-2, -1)) - g_mean**2, 0.0
+                    ))
+                    setattr(self, f'global_mean_{base}', g_mean)
+                    setattr(self, f'global_std_{base}',  g_std)
+
+            # Subset global stats to selected fields (shape (C,) → (C_selected,))
+            for attr in _global_attrs:
+                stat = getattr(self, attr)
+                if stat.ndim == 1 and stat.shape[0] > self.num_fields:
+                    setattr(self, attr, stat[self.field_idxs])
+
         self.std_lr[self.std_lr == 0] = 1
         self.std_hr[self.std_hr == 0] = 1
         self.std_upscaled_lr[self.std_upscaled_lr == 0] = 1
@@ -304,6 +348,18 @@ class SimulationXZDataset(Dataset):
             for attr in ['std_hr','mean_hr','std_lr','mean_lr',
                          'std_upscaled_lr','mean_upscaled_lr','std_resid','mean_resid']:
                 setattr(self, attr, np.tile(getattr(self, attr), (self.n_steps, 1, 1)))
+
+        # Zero-protection and n_steps tiling for global stats
+        self.global_std_lr[self.global_std_lr == 0] = 1
+        self.global_std_hr[self.global_std_hr == 0] = 1
+        self.global_std_upscaled_lr[self.global_std_upscaled_lr == 0] = 1
+        self.global_std_resid[self.global_std_resid == 0] = 1
+
+        if self.n_steps > 1 and self.global_std_hr.ndim == 1:
+            for attr in ['global_std_hr','global_mean_hr','global_std_lr','global_mean_lr',
+                         'global_std_upscaled_lr','global_mean_upscaled_lr',
+                         'global_std_resid','global_mean_resid']:
+                setattr(self, attr, np.tile(getattr(self, attr), self.n_steps))
 
 
     def __len__(self):
@@ -443,6 +499,20 @@ class SimulationXZDataset(Dataset):
             true_lr     = (true_lr    - _mlr)  / _slr
             hr          = (hr         - _mhr)  / _shr
             upscaled_lr = (upscaled_lr - _mulr) / _sulr
+        elif self.normalize == 'global_standardize':
+            # Per-channel global stats, shape (C,) — broadcast over H,W with [:, None, None]
+            _gmhr  = self.global_mean_hr[         :, None, None]
+            _gshr  = self.global_std_hr[          :, None, None]
+            _gmlr  = self.global_mean_lr[         :, None, None]
+            _gslr  = self.global_std_lr[          :, None, None]
+            _gmulr = self.global_mean_upscaled_lr[:, None, None]
+            _gsulr = self.global_std_upscaled_lr[ :, None, None]
+            _gmres = self.global_mean_resid[      :, None, None]
+            _gsres = self.global_std_resid[       :, None, None]
+            residual    = (residual    - _gmres) / _gsres
+            true_lr     = (true_lr    - _gmlr)  / _gslr
+            hr          = (hr         - _gmhr)  / _gshr
+            upscaled_lr = (upscaled_lr - _gmulr) / _gsulr
         elif self.normalize == 'rescaling':
             for i, field in enumerate(self.field_max.keys()):
                 min = self.field_min[field]
@@ -504,6 +574,25 @@ class SimulationXZDataset(Dataset):
                 unscaledarray = array*std + mean
                 return unscaledarray
             
+        elif normalize == 'global_standardize':
+            _type_to_attrs = {
+                'hr':          ('global_std_hr',          'global_mean_hr'),
+                'lr':          ('global_std_lr',          'global_mean_lr'),
+                'upscaled_lr': ('global_std_upscaled_lr', 'global_mean_upscaled_lr'),
+                'residual':    ('global_std_resid',       'global_mean_resid'),
+            }
+            if input_type not in _type_to_attrs:
+                raise Exception(f'Input type not found {input_type}')
+            std_attr, mean_attr = _type_to_attrs[input_type]
+            std  = getattr(self, std_attr) [self.field_idxs_steps]   # (C,)
+            mean = getattr(self, mean_attr)[self.field_idxs_steps]
+            if torch.is_tensor(array) and maintain_torch:
+                std  = torch.Tensor(std).to(array.device).float()
+                mean = torch.Tensor(mean).to(array.device).float()
+            elif torch.is_tensor(array):
+                array = array.cpu().detach().numpy()
+            return array * std + mean
+
         elif normalize == 'rescaling':
 
             if torch.is_tensor(array) and maintain_torch:
@@ -515,12 +604,12 @@ class SimulationXZDataset(Dataset):
             for i, (idx, field) in enumerate(zip(self.field_idxs, self.field_names)):
                 min = self.field_min[field]
                 max = self.field_max[field]
-               
+
                 if len(unscaledarray.shape) == 4:
                     unscaledarray[:,i] = (0.5 + array[:,i]/2)*(max - min) + min
                 else:
                     unscaledarray[i] = (0.5 + array[i]/2)*(max - min) + min
-            
+
             return unscaledarray
 
     def rescale_data(self, array, input_type, normalize = None, maintain_torch = False):
@@ -547,13 +636,30 @@ class SimulationXZDataset(Dataset):
             scaled_array = (array - mean)/(std)
             
             return scaled_array
+        elif normalize == 'global_standardize':
+            _type_to_attrs = {
+                'hr':          ('global_std_hr',          'global_mean_hr'),
+                'lr':          ('global_std_lr',          'global_mean_lr'),
+                'upscaled_lr': ('global_std_upscaled_lr', 'global_mean_upscaled_lr'),
+                'residual':    ('global_std_resid',       'global_mean_resid'),
+            }
+            if input_type not in _type_to_attrs:
+                raise NotImplementedError
+            std_attr, mean_attr = _type_to_attrs[input_type]
+            std  = getattr(self, std_attr) [self.field_idxs_steps]
+            mean = getattr(self, mean_attr)[self.field_idxs_steps]
+            if maintain_torch:
+                std  = torch.tensor(std).to(array.device)
+                mean = torch.tensor(mean).to(array.device)
+            return (array - mean) / std
+
         elif normalize == 'rescaling':
             assert(len(array.shape) == 4)
             scaled_array = torch.clone(array)
             for i, (idx, field) in enumerate(zip(self.field_idxs, self.field_names)):
                 min = self.field_min[field]
                 max = self.field_max[field]
-              
+
                 if len(scaled_array.shape) == 4:
                     scaled_array[:,i] = 2*(array[:,i] - min)/(max - min) - 1
                 else:
