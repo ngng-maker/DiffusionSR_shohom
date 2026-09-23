@@ -393,6 +393,10 @@ class DiffusionModel():
             plt.savefig(filename)
             wandb.log({f'{split}_{filename_suffix}': wandb.Image(filename)}, step=epoch)
             plt.clf()
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
 
         # Generate and log images
         sample_image = dataset.unscale_data(all_images.numpy()[-1, 0], input_type='hr')[temp_idx]
@@ -594,7 +598,15 @@ class DiffusionModel():
         wandb.log({f'{split}-panel': wandb.Image(os.path.join(self.results_folder,
                     self.save_prefix + f'{split}-panel-{epoch}.png'))}, step = epoch)
         plt.clf()
-        
+
+        # Remove local PNG files for this epoch after W&B has read them.
+        import glob as _glob
+        for _f in _glob.glob(os.path.join(self.results_folder, f'*{epoch}*.png')):
+            try:
+                os.remove(_f)
+            except OSError:
+                pass
+
     def batch_sample(self, dataset, batch, x_e, sampler = 'DDPM', skip = None, **kwargs):
         
         timesteps = self.timesteps
@@ -828,6 +840,10 @@ class DiffusionModel():
             plot_curves(self.results_folder, out_path=curves_png)
             if wandb.run is not None and os.path.exists(curves_png):
                 wandb.log({"loss_curves": wandb.Image(curves_png)})
+                try:
+                    os.remove(curves_png)
+                except OSError:
+                    pass
         except Exception as _e:
             print(f"Loss-curve plot skipped: {_e}")
 
