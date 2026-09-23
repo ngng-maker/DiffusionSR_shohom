@@ -590,15 +590,12 @@ class SimulationXZDataset(Dataset):
             std  = getattr(self, std_attr) [self.field_idxs_steps]   # (C,)
             mean = getattr(self, mean_attr)[self.field_idxs_steps]
             if torch.is_tensor(array) and maintain_torch:
-                std  = torch.Tensor(std).to(array.device).float()
-                mean = torch.Tensor(mean).to(array.device).float()
-                extra = (1,) * (array.dim() - 1)
-                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
+                std  = torch.Tensor(std).to(array.device).float().reshape(-1, 1, 1)
+                mean = torch.Tensor(mean).to(array.device).float().reshape(-1, 1, 1)
             elif torch.is_tensor(array):
                 array = array.cpu().detach().numpy()
             if not torch.is_tensor(array):
-                extra = (1,) * (array.ndim - 1)
-                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
+                std = std.reshape(-1, 1, 1); mean = mean.reshape(-1, 1, 1)
             return array * std + mean
 
         elif normalize == 'rescaling':
@@ -657,13 +654,10 @@ class SimulationXZDataset(Dataset):
             std  = getattr(self, std_attr) [self.field_idxs_steps]
             mean = getattr(self, mean_attr)[self.field_idxs_steps]
             if maintain_torch:
-                std  = torch.tensor(std).to(array.device)
-                mean = torch.tensor(mean).to(array.device)
-                extra = (1,) * (array.dim() - 1)
-                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
+                std  = torch.tensor(std).to(array.device).reshape(-1, 1, 1)
+                mean = torch.tensor(mean).to(array.device).reshape(-1, 1, 1)
             else:
-                extra = (1,) * (array.ndim - 1)
-                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
+                std = std.reshape(-1, 1, 1); mean = mean.reshape(-1, 1, 1)
             return (array - mean) / std
 
         elif normalize == 'rescaling':
