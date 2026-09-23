@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=abl_enc_1Sep2026
+#SBATCH --job-name=abl_encoders
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:a40:1
 #SBATCH --time=2-00:00:00
@@ -12,11 +12,9 @@
 
 set -eo pipefail
 
-# Redirect W&B artifact cache to node-local /tmp (auto-cleaned, never hits home quota)
+export WANDB_ENTITY=ngng-
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_JOB_ID}
 mkdir -p "$WANDB_CACHE_DIR"
-
-# Always clean W&B artifact staging AND cache on exit (success or failure)
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
@@ -28,15 +26,13 @@ source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 mkdir -p logs/ablation_20260901
 
-echo "=== [1/2] Encoder: temperature + liqlabel ==="
+echo "=== [1/2] Encoder: temperature + sdfliqlabel ==="
 python -m diffusionsr.runners.train_srdiff \
-  --config "$CFGS/fm_enc_sdf.yml" \
+  --config "$CFGS/fm_enc_multifield.yml" \
   --modeltype encoder \
   --gpu 0 \
-  --force_run_dir "$RUNS/enc_sdf" \
-  --force_enc_dir "$RUNS/enc_sdf" \
-  --wandb_run_name "1_Sep_2026_encoder_sdf" \
-  --resume_from_wandb "1_Sep_2026_encoder_sdf"
+  --force_run_dir "$RUNS/enc_multifield" \
+  --force_enc_dir "$RUNS/enc_multifield"
 
 echo "=== [2/2] Encoder: temperature only ==="
 python -m diffusionsr.runners.train_srdiff \
@@ -44,7 +40,6 @@ python -m diffusionsr.runners.train_srdiff \
   --modeltype encoder \
   --gpu 0 \
   --force_run_dir "$RUNS/enc_temp" \
-  --force_enc_dir "$RUNS/enc_temp" \
-  --wandb_run_name "1_Sep_2026_encoder_temp"
+  --force_enc_dir "$RUNS/enc_temp"
 
 echo "=== Encoder pretraining complete ==="

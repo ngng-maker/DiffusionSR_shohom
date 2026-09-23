@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torchsummary
 from diffusionsr.models.lr_encoder_model import rrdbnet_encoder as rrdbnet_upscaled
+from diffusionsr.models.encoder_factory import build_encoder
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
@@ -20,21 +21,58 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
 
 
     from diffusionsr.utils import make_run_name, upload_checkpoint_artifact
-    wandb.init(
-        project="RRDN_Encoder",
-        entity=os.getenv("WANDB_ENTITY"),
-        name=make_run_name('encoder'),
-        group='encoder',
-        config=config,
-    )
+    cfg = config or {}
+    _run_id_file = os.path.join(results_dir, 'wandb_run_id.txt')
+    if os.path.exists(_run_id_file):
+        with open(_run_id_file) as _f:
+            _saved_id = _f.read().strip()
+        wandb.init(id=_saved_id, resume='must',
+                   project="RRDN_Encoder", entity=os.getenv("WANDB_ENTITY"))
+    else:
+        _run_name = cfg.get('wandb_run_name') or make_run_name('encoder')
+        wandb.init(
+            project="RRDN_Encoder",
+            entity=os.getenv("WANDB_ENTITY"),
+            name=_run_name,
+            group='encoder',
+            config=config,
+        )
+        with open(_run_id_file, 'w') as _f:
+            _f.write(wandb.run.id)
 
     print("Now training encoder...")
 
-    lr_enc = rrdbnet_upscaled(upscale_factor = train_dataset.factor, in_channels = train_dataset.n_steps*train_dataset.num_fields, out_channels = train_dataset.out_steps*train_dataset.num_fields)
+    # Read the architecture selector from config. `.get` with a default keeps every existing config
+    # working unchanged: absent key -> 'rrdb' -> byte-identical to the previous hardcoded construction.
+    encoder_type = cfg.get('encoder_type', 'rrdb')
+    encoder_kwargs = cfg.get('encoder_kwargs', {})
+    # `dict2namespace` in train_srdiff recursively converts nested YAML mappings into argparse
+    # Namespaces, so a nested `encoder_kwargs:` block arrives here as a Namespace rather than a dict.
+    # vars() turns it back into the plain mapping build_encoder expects.
+    if encoder_kwargs is not None and not isinstance(encoder_kwargs, dict):
+        encoder_kwargs = vars(encoder_kwargs)
 
-    torchsummary.summary(lr_enc.to('cuda'), input_size = (train_dataset.n_steps*train_dataset.num_fields, 20, 20))
+    # Built via the shared factory so stage 2's `initialize_encoder` reconstructs exactly this
+    # architecture before loading the checkpoint written below.
+    lr_enc = build_encoder(
+        encoder_type=encoder_type,  # 'rrdb' or 'fno'
+        upscale_factor=train_dataset.factor,  # HR/LR grid ratio
+        in_channels=train_dataset.n_steps * train_dataset.num_fields,  # Stacked timesteps x fields in
+        out_channels=train_dataset.out_steps * train_dataset.num_fields,  # Stacked output steps x fields out
+        encoder_kwargs=encoder_kwargs,  # Architecture-specific options
+    )
+    print(f"Encoder architecture: {encoder_type} | kwargs={encoder_kwargs}")
 
-    
+    # torchsummary is a diagnostic only. It requires CUDA here and previously hardcoded a 20x20 input,
+    # which is the SS316L 4x LR size but wrong for any other dataset. Derive the real LR shape instead,
+    # and treat a failure as non-fatal so a summary quirk can never abort a training run.
+    try:
+        lr_side = train_dataset.img_shape // train_dataset.factor  # LR grid side length implied by HR size and factor
+        torchsummary.summary(lr_enc.to('cuda'), input_size=(train_dataset.n_steps * train_dataset.num_fields, lr_side, lr_side))
+    except Exception as _summary_error:  # Any failure (no CUDA, unsupported shape) is diagnostic-only
+        print(f"torchsummary skipped: {_summary_error}")
+
+
     tensor = torch.tensor(np.ones((1,train_dataset.n_steps,20,20))).float()
 
     os.makedirs(results_dir, exist_ok = True)

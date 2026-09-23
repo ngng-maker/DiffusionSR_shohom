@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=abl_vae_1Sep2026
+#SBATCH --job-name=abl_vaes
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:a40:1
 #SBATCH --time=2-00:00:00
@@ -12,11 +12,9 @@
 
 set -eo pipefail
 
-# Redirect W&B artifact cache to node-local /tmp (auto-cleaned, never hits home quota)
+export WANDB_ENTITY=ngng-
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_JOB_ID}
 mkdir -p "$WANDB_CACHE_DIR"
-
-# Always clean W&B artifact staging AND cache on exit (success or failure)
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
 REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
@@ -26,25 +24,24 @@ DATA=/trace/group/forgelab/ngng/multifield/data_fields
 cd "$REPO"
 source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
 conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
+mkdir -p logs/ablation_20260901
 
-echo "=== [1/2] VAE: temperature + liqlabel ==="
+echo "=== [1/2] VAE: temperature + sdfliqlabel ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
   --root_folder "$DATA" \
-  --vae_dir "$RUNS/vae_sdf" \
-  --fields temperature_liqlabel \
-  --n_steps 3 \
-  --epochs 100 \
-  --gpu 0 \
-  --wandb_run_name "1_Sep_2026_vae_sdf"
+  --vae_dir     "$RUNS/vae_multifield" \
+  --fields      temperature_sdfliqlabel \
+  --n_steps     3 \
+  --epochs      100 \
+  --gpu         0
 
 echo "=== [2/2] VAE: temperature only ==="
 python -m diffusionsr.scripts.pretrain_vae_standalone \
   --root_folder "$DATA" \
-  --vae_dir "$RUNS/vae_temp" \
-  --fields temperature \
-  --n_steps 3 \
-  --epochs 100 \
-  --gpu 0 \
-  --wandb_run_name "1_Sep_2026_vae_temp"
+  --vae_dir     "$RUNS/vae_temp" \
+  --fields      temperature \
+  --n_steps     3 \
+  --epochs      100 \
+  --gpu         0
 
 echo "=== VAE pretraining complete ==="
