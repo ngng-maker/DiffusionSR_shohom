@@ -61,7 +61,10 @@ class SimulationXZDataset(Dataset):
         else:
             all_field_names = {'temperature':0, 'liqlabel':1, 'sdfliqlabel':1}
 
-
+        # sdfliqlabel is the SDF variant of liqlabel (same column index).
+        # field_metadata.json predates this field, so inject it as an alias.
+        if 'liqlabel' in all_field_names and 'sdfliqlabel' not in all_field_names:
+            all_field_names['sdfliqlabel'] = all_field_names['liqlabel']
 
         if field_names is None:
             print(f"Using all {(len(all_field_names.keys()))} fields")
