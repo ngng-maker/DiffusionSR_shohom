@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from diffusionsr.models.diffusion_model import Unet
 from diffusionsr.models.lr_encoder_model import rrdbnet_encoder
+from diffusionsr.models.encoder_factory import build_encoder
 from diffusionsr.utils import (
     cosine_beta_schedule,
     linear_beta_schedule,
@@ -69,15 +70,23 @@ def frame_tick(frame_width=2, tick_width=1.5):
 
 def forwardpass(lr_enc, sample, factor = 4, output = False, transform_rescale = False, dataset = None):
     '''
-    Pass the array "sample" through the RRDB encoder
+    Pass the array "sample" through the conditioning encoder.
+
+    Encoder-agnostic: works with any module exposing `forward` and `conditioning_features`
+    (currently `RRDBNet` and `FNOEncoder`). `output=True` returns the encoder's final physical-field
+    prediction; `output=False` returns the wide intermediate feature map the U-Net consumes as `x_e`.
+
+    The `output=False` branch used to inline RRDBNet's layer stack here. That logic now lives in
+    `RRDBNet.conditioning_features`, which reproduces it bit-for-bit — including the fact that it
+    omits the global residual skip present in `RRDBNet._forward_impl`. See that method's docstring.
     '''
-   
+
     if transform_rescale and dataset is None:
         raise AssertionError("Dataset must be specified in order to use transform_rescale option")
 
     if output:
         if transform_rescale:
-            
+
             unscaled_sample= dataset.unscale_data(sample, input_type = 'lr', maintain_torch = True)
             rescaling_sample = dataset.rescale_data(unscaled_sample, input_type = 'lr', normalize = 'rescaling', maintain_torch = True)
             sample = rescaling_sample
@@ -89,15 +98,10 @@ def forwardpass(lr_enc, sample, factor = 4, output = False, transform_rescale = 
     else:
         if transform_rescale:
             raise NotImplementedError()
-        x = lr_enc.conv1(sample)
-        x = lr_enc.trunk(x)
-        x = lr_enc.conv2(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = lr_enc.upsampling1(x)
-        if factor == 4:
-            x = F.interpolate(x, scale_factor=2, mode='nearest')
-            x = lr_enc.upsampling2(x)
-        x = lr_enc.conv3(x)
+        # Delegate to the encoder. `factor` is forwarded rather than left implicit so the call stays
+        # exactly equivalent to the previous inline version, which took the factor from the dataset
+        # rather than from the encoder's own `upscale_factor` attribute.
+        x = lr_enc.conditioning_features(sample, factor=factor)
     return x.float()
 
 
@@ -147,6 +151,8 @@ class DiffusionModel():
                  channels_override = None,
                  image_size_override = None,
                  epoch_subsample_frac = None,
+                 encoder_type = 'rrdb',
+                 encoder_kwargs = None,
                  ):
 
         self.results_folder = results_folder
@@ -160,6 +166,12 @@ class DiffusionModel():
         self.conditioning = conditioning
         self.schedule = schedule
         self.enc_output = enc_output
+        # Which conditioning-encoder architecture to rebuild before loading stage-1 weights. Defaults to
+        # 'rrdb' so every pre-existing config and checkpoint keeps working untouched.
+        self.encoder_type = encoder_type
+        # Architecture-specific extras (FNO mode counts, upsample_mode, backend, ...). Copied into a
+        # plain dict so a shared config object cannot be mutated from here.
+        self.encoder_kwargs = dict(encoder_kwargs or {})
         self.image_size = image_size_override if image_size_override is not None else self.train_dataset.img_shape
         self.device = device
         torch.manual_seed(0)
@@ -289,8 +301,16 @@ class DiffusionModel():
         '''
         Inititalize the low resolution encoder for converting the LR data to the preliminary HR space
         '''
-        lr_enc = rrdbnet_encoder(upscale_factor = self.train_dataset.factor, in_channels=self.train_dataset.n_steps*self.train_dataset.num_fields,
-                        out_channels=self.train_dataset.n_steps*self.train_dataset.num_fields, num_blocks=8)
+        # Built through the shared factory so this stays byte-identical to the architecture that
+        # `pretrain_encoder` saved; a mismatch here would surface as a load_state_dict failure, or
+        # worse, as silently mis-shaped conditioning.
+        lr_enc = build_encoder(
+            encoder_type=self.encoder_type,  # 'rrdb' (default, preserves prior behaviour) or 'fno'
+            upscale_factor=self.train_dataset.factor,  # HR/LR grid ratio inferred by the dataset
+            in_channels=self.train_dataset.n_steps * self.train_dataset.num_fields,  # Stacked timesteps x physical fields
+            out_channels=self.train_dataset.n_steps * self.train_dataset.num_fields,  # Same width out, matching the original call
+            encoder_kwargs=self.encoder_kwargs,  # Architecture-specific options from config
+        )
 
         lr_enc.to(self.device)
         # Optimizer is reinitialized here to make sure outputs are reproducible, encoder is not trained

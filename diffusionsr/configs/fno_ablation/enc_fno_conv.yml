@@ -1,0 +1,30 @@
+# Stage 1 - encoder pretraining (fno_conv)
+# FNO-C: operator runs at LR, then RRDB's own nearest-interp + conv upsampling stack.
+# Tightest controlled comparison - isolates the trunk as the only difference.
+# Measured parameter count: 6,071,873  (1.028x RRDB)
+# Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype encoder
+
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "temperature"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "huber"
+encoder_type: "fno"
+encoder_kwargs:
+  feature_channels: 64
+  latent_channels: 96
+  num_fno_layers: 5
+  num_fno_modes: [8, 8]       # same Nyquist cap as fno_spectral
+  padding: 4
+  upsample_mode: "conv"
+  backend: "auto"

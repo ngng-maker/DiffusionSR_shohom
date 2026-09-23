@@ -67,6 +67,15 @@ if 'enc_output' in new_config:
 else:
     enc_output = False
 
+# Conditioning-encoder architecture. getattr with a default means every config predating this study
+# resolves to 'rrdb' and reproduces the original hardcoded behaviour exactly.
+encoder_type = getattr(new_config, 'encoder_type', 'rrdb')
+encoder_kwargs = getattr(new_config, 'encoder_kwargs', None)
+# dict2namespace recursively converts nested YAML mappings to argparse Namespaces, so an
+# `encoder_kwargs:` block arrives as a Namespace. vars() restores the plain dict build_encoder wants.
+if encoder_kwargs is not None and not isinstance(encoder_kwargs, dict):
+    encoder_kwargs = vars(encoder_kwargs)
+
 # Determine restart state for diffusion model
 if args.force_run_dir:
     # Stable path: always use force_run_dir; auto-detect whether to restart
@@ -263,6 +272,8 @@ if modeltype == 'diffusion':
         enc_output=enc_output,
         out_steps=out_steps,
         transform_rescale=transform_rescale,
+        encoder_type=encoder_type,
+        encoder_kwargs=encoder_kwargs,
     )
     diffusion_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                           batch_size=batch_size, learning_rate=learning_rate,
@@ -318,6 +329,8 @@ if modeltype == 'flow_matching':
         out_steps=out_steps,
         transform_rescale=transform_rescale,
         fm_timescale=fm_timescale,
+        encoder_type=encoder_type,
+        encoder_kwargs=encoder_kwargs,
     )
     fm_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                    batch_size=batch_size, learning_rate=learning_rate,
@@ -428,6 +441,8 @@ if modeltype == 'ldm':
         device='cuda:0',
         enc_output=enc_output,
         out_steps=out_steps,
+        encoder_type=encoder_type,
+        encoder_kwargs=encoder_kwargs,
     )
     # Offset DDPM W&B step counter by the number of VAE epochs so the two
     # training phases don't overlap on the same x-axis.

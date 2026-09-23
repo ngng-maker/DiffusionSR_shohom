@@ -1,0 +1,33 @@
+# Stage 2 - conditional diffusion on the frozen fno_spectral encoder
+# FNO-B: operator runs on the 20x20 LR grid; upsampling is done by zero-padding
+# the spectrum in the final spectral layer. Most operator-native variant.
+# Requires backend: builtin - physicsnemo does not expose per-layer output sizing.
+# Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype diffusion
+# encoder_type/encoder_kwargs MUST match enc_fno_spectral.yml exactly, or the stage-1
+# checkpoint will not load into the rebuilt architecture.
+
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "temperature"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "huber"
+encoder_type: "fno"
+encoder_kwargs:
+  feature_channels: 64
+  latent_channels: 96         # wider latent compensates for the mode cap below
+  num_fno_layers: 5
+  num_fno_modes: [8, 8]       # 20x20 LR grid caps usable modes at Nyquist = 10
+  padding: 4
+  upsample_mode: "spectral"
+  backend: "builtin"          # required for this variant
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_spectral"

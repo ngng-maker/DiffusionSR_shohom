@@ -231,6 +231,43 @@ class RRDBNet(nn.Module):
 
         return out
 
+    def conditioning_features(self, x: torch.Tensor, factor: int = None) -> torch.Tensor:
+        """Return the 64-channel HR feature map used to condition the diffusion U-Net.
+
+        This is the tensor the paper describes as "the 64-channel tensor output of the model prior
+        to the last convolutional layer" (Section 2.2), i.e. `conv3`'s output rather than `conv4`'s.
+
+        WARNING — deliberate divergence from `_forward_impl`:
+        `_forward_impl` applies a global residual skip, `out = torch.add(out1, out2)`, before
+        upsampling. The conditioning path does NOT, and never has: this method reproduces the
+        inlined logic that lived in `train_diffusion.forwardpass` bit-for-bit, because every
+        trained encoder/diffusion checkpoint in this repo was conditioned on exactly that
+        computation. "Fixing" the missing skip here would silently change the RRDB baseline and
+        invalidate any comparison against it. Do not add the residual without retraining.
+        """
+        # Fall back to the factor the network was constructed with. `forwardpass` historically took
+        # `factor` from `dataset.factor`, which is also what `upscale_factor` is set from, so the two
+        # agree in practice — but the override is kept so the call remains exactly equivalent.
+        if factor is None:
+            factor = self.upscale_factor
+
+        x = self.conv1(x)  # First 3x3 convolution, lifting the input fields to `channels` (64) feature maps
+        x = self.trunk(x)  # The stack of residual-in-residual dense blocks; the main feature-extraction body
+        x = self.conv2(x)  # Post-trunk 3x3 convolution. NOTE: `out1` is deliberately NOT re-added here (see docstring)
+
+        # First 2x upsampling stage. 'nearest' repeats each pixel into a 2x2 block, which the following
+        # conv+LeakyReLU then smooths; this interpolate/conv pairing is RRDBNet's upsampling idiom.
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
+        x = self.upsampling1(x)  # 3x3 conv + LeakyReLU(0.2) refining the doubled feature map
+
+        if factor == 4:  # A second doubling is only applied for 4x encoders; 2x encoders stop after the first
+            x = F.interpolate(x, scale_factor=2, mode="nearest")  # Second nearest-neighbour doubling to reach 4x
+            x = self.upsampling2(x)  # Second refinement conv + LeakyReLU
+
+        # Final conv + LeakyReLU at HR resolution. Its output is the conditioning tensor; `conv4`
+        # (which would collapse this to the physical field channels) is intentionally not applied.
+        return self.conv3(x)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # breakpoint()
         # print(x.shape)
