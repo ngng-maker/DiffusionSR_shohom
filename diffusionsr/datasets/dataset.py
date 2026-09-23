@@ -57,9 +57,9 @@ class SimulationXZDataset(Dataset):
             with open(field_metadata_path) as f:
                 all_field_names = {name: i for i, name in enumerate(json.load(f)['fields'])}
         elif 'ss316l' in self.root_folder:
-            all_field_names = {'temperature':0, 'liqlabel':1}
+            all_field_names = {'temperature':0, 'liqlabel':1, 'sdfliqlabel':1}
         else:
-            all_field_names = {'temperature':0, 'liqlabel':1}
+            all_field_names = {'temperature':0, 'liqlabel':1, 'sdfliqlabel':1}
 
 
 
