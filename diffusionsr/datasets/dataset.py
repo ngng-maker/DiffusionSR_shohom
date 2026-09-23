@@ -592,8 +592,13 @@ class SimulationXZDataset(Dataset):
             if torch.is_tensor(array) and maintain_torch:
                 std  = torch.Tensor(std).to(array.device).float()
                 mean = torch.Tensor(mean).to(array.device).float()
+                extra = (1,) * (array.dim() - 1)
+                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
             elif torch.is_tensor(array):
                 array = array.cpu().detach().numpy()
+            if not torch.is_tensor(array):
+                extra = (1,) * (array.ndim - 1)
+                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
             return array * std + mean
 
         elif normalize == 'rescaling':
@@ -654,6 +659,11 @@ class SimulationXZDataset(Dataset):
             if maintain_torch:
                 std  = torch.tensor(std).to(array.device)
                 mean = torch.tensor(mean).to(array.device)
+                extra = (1,) * (array.dim() - 1)
+                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
+            else:
+                extra = (1,) * (array.ndim - 1)
+                std = std.reshape(-1, *extra); mean = mean.reshape(-1, *extra)
             return (array - mean) / std
 
         elif normalize == 'rescaling':
