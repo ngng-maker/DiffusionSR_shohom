@@ -152,8 +152,16 @@ def main():
         else:
             from diffusionsr.runners.train_ldm import LDMModel
             model = LDMModel(vae_folder=args.vae_dir, **common)
-        model.load_saved_model()
-        print(f'Model loaded from {args.model_dir}')
+        # Prefer bestmodel_saved.pth (best val-loss) over ckpt.pth (latest, can be
+        # corrupt if training was interrupted mid-write).
+        best_path = os.path.join(args.model_dir, 'bestmodel_saved.pth')
+        if os.path.exists(best_path):
+            ckpt = torch.load(best_path, map_location=device)
+            model.model.load_state_dict(ckpt[0])
+            print(f'Loaded bestmodel_saved.pth from {args.model_dir}')
+        else:
+            model.load_saved_model()
+            print(f'Loaded ckpt.pth from {args.model_dir}')
 
     # ── Sample full test set ──────────────────────────────────────────────────
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)

@@ -218,7 +218,7 @@ class LDMModel(DiffusionModel):
         """Sample z_0 in latent space via DDPM/DDIM, then decode to pixel space."""
         latent_h = batch.shape[-2] // 4
         latent_w = batch.shape[-1] // 4
-        batch_size = 2
+        batch_size = batch.shape[0]
 
         if sampler == 'DDPM':
             # Parent DDPM uses dataset.img_shape (pixel size) for noise — wrong for latent space.
