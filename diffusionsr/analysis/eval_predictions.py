@@ -85,6 +85,10 @@ def main():
     parser.add_argument('--device',           default='cuda')
     parser.add_argument('--wandb_entity',     default=os.getenv('WANDB_ENTITY', ''))
     parser.add_argument('--wandb_project',    default='Flow3D_SuperResolution')
+    parser.add_argument('--artifact_name',    default=None,
+                        help='override the W&B artifact name; defaults to {run_name}_eval_predictions')
+    parser.add_argument('--max_batches',      type=int, default=None,
+                        help='cap the number of test batches (for step-count ablations; default: all)')
     args = parser.parse_args()
 
     if args.model_type == 'ldm' and args.vae_dir is None:
@@ -173,6 +177,8 @@ def main():
     ddpm_sampler = args.sampler or 'DDIM'
 
     for i, batch in enumerate(test_loader):
+        if args.max_batches is not None and i >= args.max_batches:
+            break
         _, hr_b, lr_b, ul_b = batch[:4]
 
         with torch.no_grad():
@@ -181,8 +187,10 @@ def main():
             else:
                 xe = model.compute_x_e(lr_b, ul_b) if encoding else None
                 if is_ldm:
+                    ldm_sampler = args.sampler or 'DDPM'
+                    ldm_skip = args.skip if ldm_sampler == 'DDIM' else None
                     samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
-                                               x_e=xe, sampler='DDPM')
+                                               x_e=xe, sampler=ldm_sampler, skip=ldm_skip)
                     pred = samps[-1].cpu().numpy()
                     mu, _ = model.vae.encode(hr_b.to(device).float())
                     vr = model.vae.decode(mu).cpu().numpy()
@@ -237,10 +245,11 @@ def main():
         npz_path = os.path.join(tmpdir, 'predictions.npz')
         np.savez(npz_path, **save_dict)
 
+        artifact_name = args.artifact_name or f'{args.run_name}_eval_predictions'
         artifact = wandb.Artifact(
-            name=f'{args.run_name}_eval_predictions',
+            name=artifact_name,
             type='eval_predictions',
-            description=f'Test-set predictions for {args.run_name} ({len(all_preds)} samples)',
+            description=f'Predictions for {args.run_name} ({len(all_preds)} samples)',
         )
         artifact.add_file(npz_path, name='predictions.npz')
         run.log_artifact(artifact, aliases=['latest'])
