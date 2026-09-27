@@ -57,7 +57,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_name',         required=True,  help='short experiment id, e.g. abl_fm_enc_sdf')
     parser.add_argument('--wandb_run_name',   required=True,  help='W&B display name of the training run')
-    parser.add_argument('--model_type',       required=True,  choices=['diffusion', 'flow_matching', 'ldm'])
+    parser.add_argument('--model_type',       required=True,  choices=['diffusion', 'flow_matching', 'ldm', 'encoder'])
     parser.add_argument('--model_dir',        required=True,  help='results_folder for the trained model')
     parser.add_argument('--enc_dir',          default=None,   help='encoder folder; omit for no-encoder runs')
     # The encoder architecture must be rebuilt exactly as it was trained before its checkpoint can
@@ -113,64 +113,89 @@ def main():
     print(f'Fields: {train_ds.field_names}  |  n_test={len(test_ds)}')
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    # Shared across all three model types; encoder_type/encoder_kwargs are what let the eval
-    # reconstruct an FNO encoder rather than defaulting to RRDB and failing load_state_dict.
-    common = dict(
-        results_folder=args.model_dir, lr_encoder_folder=args.enc_dir,
-        train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-        timesteps=args.timesteps, conditioning=args.conditioning,
-        encoding=encoding, schedule=args.schedule, device=device, enc_output=False,
-        encoder_type=encoder_type, encoder_kwargs=encoder_kwargs,
-    )
-    if args.model_type == 'diffusion':
-        from diffusionsr.runners.train_diffusion import DiffusionModel
-        model = DiffusionModel(**common)
-    elif args.model_type == 'flow_matching':
-        from diffusionsr.runners.train_flow_matching import FlowMatchingModel
-        model = FlowMatchingModel(**common)
+    if args.model_type == 'encoder':
+        # Encoder-only: single forward pass, no diffusion sampling.
+        # model_dir IS the encoder folder for this path.
+        from diffusionsr.models.encoder_factory import build_encoder
+        lr_enc = build_encoder(
+            encoder_type=encoder_type,
+            upscale_factor=train_ds.factor,
+            in_channels=train_ds.n_steps * train_ds.num_fields,
+            out_channels=train_ds.out_steps * train_ds.num_fields,
+            encoder_kwargs=encoder_kwargs,
+        )
+        lr_enc.to(device)
+        lrenc_fname = os.path.join(args.model_dir, 'bestmodel_saved.pth')
+        if not os.path.exists(lrenc_fname):
+            lrenc_fname = os.path.join(args.model_dir, 'model_saved.pth')
+        ckpt = torch.load(lrenc_fname, map_location=device)
+        lr_enc.load_state_dict(ckpt['model_state_dict'])
+        lr_enc.eval()
+        print(f'Encoder loaded from {lrenc_fname}  type={encoder_type}')
+        model = None
     else:
-        from diffusionsr.runners.train_ldm import LDMModel
-        model = LDMModel(vae_folder=args.vae_dir, **common)
-    model.load_saved_model()
-    print(f'Model loaded from {args.model_dir}')
+        # Shared across diffusion / flow_matching / ldm.
+        # encoder_type/encoder_kwargs let the eval reconstruct an FNO encoder.
+        common = dict(
+            results_folder=args.model_dir, lr_encoder_folder=args.enc_dir,
+            train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
+            timesteps=args.timesteps, conditioning=args.conditioning,
+            encoding=encoding, schedule=args.schedule, device=device, enc_output=False,
+            encoder_type=encoder_type, encoder_kwargs=encoder_kwargs,
+        )
+        if args.model_type == 'diffusion':
+            from diffusionsr.runners.train_diffusion import DiffusionModel
+            model = DiffusionModel(**common)
+        elif args.model_type == 'flow_matching':
+            from diffusionsr.runners.train_flow_matching import FlowMatchingModel
+            model = FlowMatchingModel(**common)
+        else:
+            from diffusionsr.runners.train_ldm import LDMModel
+            model = LDMModel(vae_folder=args.vae_dir, **common)
+        model.load_saved_model()
+        print(f'Model loaded from {args.model_dir}')
 
     # ── Sample full test set ──────────────────────────────────────────────────
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)
     all_preds, all_gts, all_vae = [], [], []
-    is_ldm = args.model_type == 'ldm'
+    is_enc  = args.model_type == 'encoder'
+    is_ldm  = args.model_type == 'ldm'
     is_ddpm = args.model_type == 'diffusion'
     # DDIM with skip=50 is the paper's sampling configuration (50x faster than full DDPM).
     ddpm_sampler = args.sampler or 'DDIM'
 
     for i, batch in enumerate(test_loader):
         _, hr_b, lr_b, ul_b = batch[:4]
-        xe = model.compute_x_e(lr_b, ul_b) if encoding else None
 
         with torch.no_grad():
-            if is_ldm:
-                samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
-                                           x_e=xe, sampler='DDPM')
-                pred = samps[-1].cpu().numpy()
-                mu, _ = model.vae.encode(hr_b.to(device).float())
-                vr = model.vae.decode(mu).cpu().numpy()
-                all_vae.extend(
-                    test_ds.unscale_data(vr[s], input_type='hr') for s in range(hr_b.shape[0])
-                )
-            elif is_ddpm:
-                samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
-                                           x_e=xe, sampler=ddpm_sampler, skip=args.skip)
-                pred = samps[-1].cpu().numpy()
-                del samps; torch.cuda.empty_cache()
+            if is_enc:
+                pred = lr_enc(lr_b.to(device).float()).cpu().numpy()
             else:
-                samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
-                                           x_e=xe, sampler=args.sampler or 'euler',
-                                           n_steps=args.fm_n_steps)
-                pred = samps[-1].cpu().numpy()
-                del samps; torch.cuda.empty_cache()
+                xe = model.compute_x_e(lr_b, ul_b) if encoding else None
+                if is_ldm:
+                    samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
+                                               x_e=xe, sampler='DDPM')
+                    pred = samps[-1].cpu().numpy()
+                    mu, _ = model.vae.encode(hr_b.to(device).float())
+                    vr = model.vae.decode(mu).cpu().numpy()
+                    all_vae.extend(
+                        test_ds.unscale_data(vr[s], input_type='hr') for s in range(hr_b.shape[0])
+                    )
+                elif is_ddpm:
+                    samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
+                                               x_e=xe, sampler=ddpm_sampler, skip=args.skip)
+                    pred = samps[-1].cpu().numpy()
+                    del samps; torch.cuda.empty_cache()
+                else:
+                    samps = model.batch_sample(dataset=test_ds, batch=hr_b.to(device),
+                                               x_e=xe, sampler=args.sampler or 'euler',
+                                               n_steps=args.fm_n_steps)
+                    pred = samps[-1].cpu().numpy()
+                    del samps; torch.cuda.empty_cache()
 
         for s in range(hr_b.shape[0]):
-            all_preds.append(test_ds.unscale_data(pred[s],              input_type='hr'))
-            all_gts.append(  test_ds.unscale_data(hr_b.numpy()[s],      input_type='hr'))
+            all_preds.append(test_ds.unscale_data(pred[s],         input_type='hr'))
+            all_gts.append(  test_ds.unscale_data(hr_b.numpy()[s], input_type='hr'))
 
         print(f'  batch {i+1}/{len(test_loader)}  ({hr_b.shape[0]} samples)', flush=True)
 
