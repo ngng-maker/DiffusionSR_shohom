@@ -24,7 +24,7 @@ import wandb
 
 from diffusionsr.models.vae_model import VAE2D, KLVAE, vae_loss
 from diffusionsr.runners.train_diffusion import DiffusionModel, forwardpass
-from diffusionsr.utils import upload_checkpoint_artifact
+from diffusionsr.utils import upload_checkpoint_artifact, cleanup_old_checkpoint_versions
 
 LATENT_CH = 4  # latent channels; must match VAE latent_channels
 _VAE_CHANNEL_MULTS = (1, 2)  # two stride-2 stages → 4x spatial reduction, same as original KLVAE
@@ -125,6 +125,8 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
             upload_checkpoint_artifact(str(ckpt_path), wandb.run.name + '_vae',
                                        epoch, is_best=False)
 
+    if wandb.run is not None:
+        cleanup_old_checkpoint_versions(wandb.run.name + '_vae')
     return num_epochs
 
 

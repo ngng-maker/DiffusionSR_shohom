@@ -115,15 +115,18 @@ def make_run_name(model_type: str, suffix: str = "") -> str:
 
 
 def upload_checkpoint_artifact(ckpt_path: str, run_name: str, epoch: int,
-                                is_best: bool = False) -> None:
+                                is_best: bool = False, freq: int = 20) -> None:
     """Upload a checkpoint file to W&B as a versioned artifact.
 
     The artifact is named ``{run_name}_ckpt`` (type ``checkpoint``) with
     aliases ``['latest', 'epoch_{epoch}']`` (plus ``'best'`` when is_best).
+    Non-best uploads are skipped unless ``epoch % freq == 0``.
     No-op if ``wandb.run`` is None (W&B disabled or not initialised yet).
     """
     import wandb  # local import so utils stays importable without W&B installed
     if wandb.run is None:
+        return
+    if not is_best and epoch % freq != 0:
         return
     art = wandb.Artifact(
         name=f"{run_name}_ckpt",
@@ -135,6 +138,34 @@ def upload_checkpoint_artifact(ckpt_path: str, run_name: str, epoch: int,
     if is_best:
         aliases.append("best")
     wandb.run.log_artifact(art, aliases=aliases)
+
+
+def cleanup_old_checkpoint_versions(run_name: str, project: str = None,
+                                     entity: str = None) -> None:
+    """Delete all checkpoint artifact versions except those tagged 'latest' or 'best'.
+
+    Call once at the end of training to avoid accumulating hundreds of versions.
+    No-op if wandb.run is None.
+    """
+    import wandb
+    if wandb.run is None:
+        return
+    api = wandb.Api()
+    _entity = entity or wandb.run.entity
+    _project = project or wandb.run.project
+    artifact_name = f"{run_name}_ckpt"
+    try:
+        versions = list(api.artifact_versions(
+            'checkpoint', f'{_entity}/{_project}/{artifact_name}'))
+        keep = {'latest', 'best'}
+        deleted = 0
+        for v in versions:
+            if not any(a in keep for a in v.aliases):
+                v.delete()
+                deleted += 1
+        print(f'Cleaned up {deleted} old checkpoint versions for {artifact_name}')
+    except Exception as e:
+        print(f'Checkpoint cleanup skipped for {artifact_name}: {e}')
 
 
 def restore_checkpoint_from_wandb(entity: str, project: str, run_name: str,

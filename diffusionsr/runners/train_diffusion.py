@@ -16,6 +16,7 @@ from diffusionsr.utils import (
     quadratic_beta_schedule,
     sigmoid_beta_schedule,
     upload_checkpoint_artifact,
+    cleanup_old_checkpoint_versions,
 )
 from pylab import gca
 from torch.utils.data import DataLoader, Subset
@@ -866,4 +867,7 @@ class DiffusionModel():
                     pass
         except Exception as _e:
             print(f"Loss-curve plot skipped: {_e}")
+
+        if wandb.run is not None:
+            cleanup_old_checkpoint_versions(wandb.run.name)
 
