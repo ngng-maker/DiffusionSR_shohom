@@ -253,8 +253,8 @@ def main():
         )
         artifact.add_file(npz_path, name='predictions.npz')
         run.log_artifact(artifact, aliases=['latest'])
+        run.finish()
 
-    run.finish()
     print('Artifact uploaded. Done.')
 
 
