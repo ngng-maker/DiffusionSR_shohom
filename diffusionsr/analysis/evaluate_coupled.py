@@ -302,7 +302,9 @@ def main():
     ckpt_path = os.path.join(args.model_dir, 'ckpt.pth')
     _load_path = best_path if os.path.exists(best_path) else ckpt_path
     _peek = torch.load(_load_path, map_location='cpu')
-    _unet_dim = int(_peek[0]['init_conv.weight'].shape[0])
+    # time_mlp.1 is Linear(dim, 4*dim) — shape[1] is the true Unet dim.
+    # init_conv.weight.shape[0] is init_dim (defaults to 64, not dim).
+    _unet_dim = int(_peek[0]['time_mlp.1.weight'].shape[1])
     del _peek
     print(f'Recovered U-Net dim={_unet_dim} from checkpoint')
 
@@ -313,6 +315,7 @@ def main():
         encoding=encoding, sigma=args.sigma, gamma_c=args.gamma_c,
         si_cond=args.si_cond, fm_timescale=args.fm_timescale,
         image_size_override=_unet_dim,
+        enc_output=False,  # SI training uses enc_output=False (init_dim=None → Unet default 64)
         device=device,
     )
     if os.path.exists(best_path):
