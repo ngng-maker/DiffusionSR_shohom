@@ -15,7 +15,7 @@ fm_timescale: 1000.0
 ema_decay: 0.999
 grad_clip: 1.0
 p_flip: 0.2
-fields: "temperature sdfliqlabel"
+fields: temperature_sdfliqlabel
 encoding: False
 conditioning: "explicit"
 si_sigma: 0.2
