@@ -160,6 +160,7 @@ _MODEL_LABELS = {
     'ldm':              'latent_diffusion',
     'encoder':          'encoder',
     'mobilenet':        'mobilenet',
+    'coupled':          'coupled_interpolant',
 }
 
 
@@ -461,3 +462,84 @@ if modeltype == 'encoder':
             'runs', downscale_method, 'encoder', datetime_string,
             normalize_method, f'n_steps_{n_steps}')
     _run_or_skip_encoder(encoder_results_dir)
+
+
+# ── COUPLED STOCHASTIC INTERPOLANT ────────────────────────────────────────────
+if modeltype == 'coupled':
+    from diffusionsr.datasets.flipped_dataset import FlippedDataset
+    from diffusionsr.runners.train_coupled import CoupledInterpolantModel
+
+    si_sigma     = float(getattr(new_config, 'si_sigma',     0.1))
+    si_gamma_c   = float(getattr(new_config, 'si_gamma_c',   0.0))
+    si_cond      = str(  getattr(new_config, 'si_cond',      'ulr_concat'))
+    fm_timescale = float(getattr(new_config, 'fm_timescale', 1000.0))
+    ema_decay    = float(getattr(new_config, 'ema_decay',    0.999))
+    grad_clip    = float(getattr(new_config, 'grad_clip',    1.0))
+    p_flip       = float(getattr(new_config, 'p_flip',       0.2))
+
+    # Use FlippedDataset (pre-normalization flip, dims=[1]) for the coupled model.
+    flip_kw = dict(downscale_method=downscale_method, normalize=normalize_method,
+                   root_folder=root_folder, n_steps=n_steps, field_names=field_names,
+                   out_steps=out_steps, p_flip=p_flip)
+    train_dataset_si = FlippedDataset(split='train', **flip_kw)
+    dev_dataset_si   = FlippedDataset(split='dev',   **flip_kw)
+    test_dataset_si  = FlippedDataset(split='test',  **flip_kw)
+
+    if encoding_flag:
+        if args.force_enc_dir:
+            encoder_results_dir = args.force_enc_dir
+        elif use_pretrained:
+            encoder_results_dir = new_config.encoder_results_dir
+        else:
+            encoder_results_dir = os.path.join(
+                'runs', downscale_method, 'encoder', datetime_string,
+                normalize_method, f'n_steps_{n_steps}')
+        _run_or_skip_encoder(encoder_results_dir)
+    else:
+        encoder_results_dir = 'no_encoder_used'
+
+    if diffusion_run_dir_fixed:
+        si_results_dir = diffusion_run_dir_fixed
+    else:
+        si_tag = f'si_s{int(si_sigma*100):03d}_g{int(si_gamma_c*100):03d}_{si_cond}'
+        si_results_dir = os.path.join(
+            'runs', downscale_method, si_tag,
+            datetime_string, normalize_method, f'n_steps_{n_steps}')
+
+    os.makedirs(si_results_dir, exist_ok=True)
+    shutil.copy(config_path, os.path.join(si_results_dir, 'configuration.yml'))
+
+    print("Training Coupled Stochastic Interpolant...")
+
+    coupled_model = CoupledInterpolantModel(
+        results_folder=si_results_dir,
+        lr_encoder_folder=encoder_results_dir,
+        train_dataset=train_dataset_si,
+        dev_dataset=dev_dataset_si,
+        test_dataset=test_dataset_si,
+        timesteps=timesteps,
+        conditioning=conditioning if si_cond == 'enc_implicit' else 'explicit',
+        encoding=encoding_flag,
+        schedule=schedule,
+        device='cuda:0',
+        enc_output=enc_output,
+        out_steps=out_steps,
+        encoder_type=encoder_type,
+        encoder_kwargs=encoder_kwargs,
+        sigma=si_sigma,
+        gamma_c=si_gamma_c,
+        si_cond=si_cond,
+        fm_timescale=fm_timescale,
+        ema_decay=ema_decay,
+        grad_clip=grad_clip,
+    )
+    coupled_model.train(
+        epochs=epochs,
+        restart=restart,
+        restart_dir=restart_dir,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        loss_type=loss_type,
+        wandb_run_name=args.wandb_run_name,
+        wandb_entity=os.getenv('WANDB_ENTITY', ''),
+    )
