@@ -37,6 +37,8 @@ def parse_args_and_config():
     parser.add_argument('--resume_from_wandb', type=str, default='',
                         help="W&B run name to restore 'latest' checkpoint artifact from "
                              "(used when local ckpt.pth is absent after SLURM preemption)")
+    parser.add_argument('--epochs', type=int, default=None,
+                        help="Override the epochs value in the config (useful for pilot runs)")
     args = parser.parse_args()
 
     # Support absolute paths, cwd-relative paths (e.g. configs/multifield/...),
@@ -118,7 +120,7 @@ field_names = config_to_field_names(combined_dict)
 print(field_names)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-epochs = int(new_config.epochs)
+epochs = args.epochs if args.epochs is not None else int(new_config.epochs)
 learning_rate = float(new_config.learning_rate)
 loss_type = getattr(new_config, 'loss_type', 'huber')
 out_steps = getattr(new_config, 'out_steps', None)
