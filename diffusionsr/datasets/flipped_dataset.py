@@ -78,8 +78,12 @@ class FlippedDataset(SimulationXZDataset):
     # ------------------------------------------------------------------
 
     def __getitem__(self, idx):
-        # Parent returns already-normalized (C, H, W) tensors.
         res, hr, lr, ulr = super().__getitem__(idx)
+
+        # Parent may return numpy arrays; convert so stat-tensor arithmetic works.
+        def _to_t(x):
+            return x if isinstance(x, torch.Tensor) else torch.tensor(np.array(x, dtype=np.float32))
+        res, hr, lr, ulr = _to_t(res), _to_t(hr), _to_t(lr), _to_t(ulr)
 
         if random.random() >= self.p_flip:
             return res, hr, lr, ulr
