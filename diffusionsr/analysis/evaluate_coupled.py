@@ -255,12 +255,17 @@ def evaluate(
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run_name',       required=True)
-    ap.add_argument('--wandb_run_name', required=True)
+    ap.add_argument('--wandb_run_name', default=None,
+                    help='W&B display name of the training run; if omitted, eval results are '
+                         'saved locally only (no artifact upload).')
     ap.add_argument('--model_dir',      required=True)
     ap.add_argument('--enc_dir',        default=None)
-    ap.add_argument('--config',         default=None, help='Training config YAML; read for encoder_type/kwargs')
-    ap.add_argument('--data_root',      required=True)
-    ap.add_argument('--field_names',    nargs='+', default=['temperature'])
+    ap.add_argument('--config',         default=None,
+                    help='Training config YAML; if provided, data_root and field_names are '
+                         'read from it when not given on the command line.')
+    ap.add_argument('--data_root',      default=None,
+                    help='Path to data directory (root_folder). Required if --config is not given.')
+    ap.add_argument('--field_names',    nargs='+', default=None)
     ap.add_argument('--downscale',      default='direct')
     ap.add_argument('--sampler',        default='heun', choices=['heun', 'dopri5', 'em'])
     ap.add_argument('--n_steps',        type=int, default=20)
@@ -280,6 +285,21 @@ def main():
     ap.add_argument('--wandb_project',  default='Flow3D_SuperResolution')
     ap.add_argument('--artifact_name',  default=None)
     args = ap.parse_args()
+
+    # Fill data_root and field_names from config YAML when not given on CLI
+    if args.config is not None:
+        import yaml
+        with open(args.config) as _f:
+            _cfg = yaml.safe_load(_f)
+        if args.data_root is None:
+            args.data_root = _cfg.get('root_folder')
+        if args.field_names is None:
+            _raw = _cfg.get('fields', 'temperature')
+            args.field_names = _raw.split('_') if isinstance(_raw, str) else list(_raw)
+    if args.field_names is None:
+        args.field_names = ['temperature']
+    if args.data_root is None:
+        ap.error('--data_root is required when --config is not provided')
 
     device = args.device if torch.cuda.is_available() else 'cpu'
     os.makedirs(args.out_dir, exist_ok=True)
@@ -340,6 +360,10 @@ def main():
     json_path = os.path.join(args.out_dir, f'{args.run_name}_results.json')
     with open(json_path, 'w') as f:
         json.dump(results, f, indent=2)
+
+    if args.wandb_run_name is None:
+        print('--wandb_run_name not provided; skipping W&B artifact upload.')
+        return
 
     # Upload artifact to existing W&B training run
     api = wandb.Api()
