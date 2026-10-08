@@ -294,15 +294,27 @@ def main():
 
     from diffusionsr.runners.train_coupled import CoupledInterpolantModel
     encoding = args.enc_dir is not None
+
+    # Peek at the checkpoint to recover the U-Net dim that was used at training time.
+    # This is necessary because DiffusionModel derives dim from dataset.img_shape, which
+    # can differ between training and eval environments.
+    best_path = os.path.join(args.model_dir, 'bestmodel_saved.pth')
+    ckpt_path = os.path.join(args.model_dir, 'ckpt.pth')
+    _load_path = best_path if os.path.exists(best_path) else ckpt_path
+    _peek = torch.load(_load_path, map_location='cpu')
+    _unet_dim = int(_peek[0]['init_conv.weight'].shape[0])
+    del _peek
+    print(f'Recovered U-Net dim={_unet_dim} from checkpoint')
+
     model = CoupledInterpolantModel(
         results_folder=args.model_dir,
         lr_encoder_folder=args.enc_dir,
         train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
         encoding=encoding, sigma=args.sigma, gamma_c=args.gamma_c,
         si_cond=args.si_cond, fm_timescale=args.fm_timescale,
+        image_size_override=_unet_dim,
         device=device,
     )
-    best_path = os.path.join(args.model_dir, 'bestmodel_saved.pth')
     if os.path.exists(best_path):
         ckpt = torch.load(best_path, map_location=device)
         model.model.load_state_dict(ckpt[0])
