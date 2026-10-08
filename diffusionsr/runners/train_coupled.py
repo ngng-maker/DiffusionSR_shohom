@@ -86,12 +86,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
         self._double_input = (si_cond == 'ulr_concat')
 
         if self._double_input:
-            # Override channels_override so DiffusionModel builds Unet with 2*C input channels.
-            # out_dim stays at C (we still output a C-channel HF prediction).
-            train_ds = args[2] if len(args) > 2 else kwargs.get('train_dataset')
-            base_C = train_ds.n_steps * train_ds.num_fields
-            kwargs.setdefault('channels_override', base_C * 2)
-            kwargs.setdefault('conditioning', 'explicit')   # concat before first conv
+            # Use conditioning='explicit' so Unet.forward concatenates x_e before
+            # the first conv.  The Unet is built with channels=C and its first conv
+            # is sized channels*2=2*C internally — no channels_override needed.
+            kwargs.setdefault('conditioning', 'explicit')
 
         super().__init__(*args, fm_timescale=fm_timescale, **kwargs)
 
@@ -105,10 +103,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
         if gamma_c > 0.0:
             base_C = self.train_dataset.n_steps * self.train_dataset.num_fields
             init_dim = base_C if self.enc_output else None
-            in_ch = base_C * 2 if self._double_input else base_C
+            # channels=base_C; explicit conditioning doubles input internally to 2*C.
             self.model = Unet(
                 dim=self.image_size,
-                channels=in_ch,
+                channels=base_C,
                 init_dim=init_dim,
                 encoder_flag=self.encoding,
                 dim_mults=(1, 2, 4,),
