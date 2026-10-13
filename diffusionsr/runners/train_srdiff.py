@@ -34,6 +34,11 @@ def parse_args_and_config():
                              "If ckpt.pth exists here, training is automatically resumed.")
     parser.add_argument('--wandb_run_name', type=str, default='',
                         help="Override auto-generated W&B run name (D_Mon_YYYY_<model>_<downscale>)")
+    # Lets one config run on several clusters. Without it, root_folder is read from the YAML, which
+    # pins every config to the machine it was written on.
+    parser.add_argument('--data_root', type=str, default='',
+                        help="override the config's root_folder (for running the same config on a "
+                             "different cluster)")
     parser.add_argument('--resume_from_wandb', type=str, default='',
                         help="W&B run name to restore 'latest' checkpoint artifact from "
                              "(used when local ckpt.pth is absent after SLURM preemption)")
@@ -105,7 +110,10 @@ if args.force_run_dir and args.resume_from_wandb and not restart:
 use_pretrained = new_config.use_pretrained
 if use_pretrained and not args.force_enc_dir:
     encoder_results_dir = new_config.encoder_results_dir
-root_folder = new_config.root_folder
+# --data_root wins over the config so a TRACE-written config can run elsewhere unmodified.
+root_folder = args.data_root or new_config.root_folder
+if args.data_root:
+    print(f"root_folder overridden by --data_root: {root_folder}")
 schedule = new_config.schedule
 n_steps = int(new_config.n_steps)
 timesteps = int(new_config.timesteps)

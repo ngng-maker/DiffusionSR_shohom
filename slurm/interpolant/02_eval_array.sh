@@ -2,6 +2,9 @@
 #SBATCH --job-name=si_eval
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:a40:1
+# NOTE: SBATCH directives are parsed BEFORE the shell runs, so they cannot read
+# $CL_PARTITION / $CL_GRES. These are TRACE defaults; submit_all.sh overrides them on the
+# sbatch command line from the cluster profile, and a command-line value wins.
 #SBATCH --time=0-08:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -31,32 +34,23 @@
 
 set -eo pipefail
 
-export WANDB_ENTITY=ngng-
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}
 mkdir -p "$WANDB_CACHE_DIR"
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
-REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
-RUNS=$REPO/diffusionsr/runs/interpolant
-CFGS=$REPO/diffusionsr/configs/stochastic_interpolant
-OUT=$REPO/eval_results/interpolant
-ENC_DIR=$REPO/diffusionsr/runs/ablation_20260901/enc_temp
+# All cluster-specific values come from the profile, so this script is machine-agnostic.
+REPO_GUESS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$REPO_GUESS/slurm/cluster_env.sh"
 
-# Sampling budget, held equal across arms so nobody wins on step count.
-#   SI arms: N_STEPS Euler/Heun steps.
-#   DDPM:    timesteps/SKIP strided DDIM steps. 1000/50 = 20, matching N_STEPS=20.
-# All four are overridable at submit time, so the epsilon and step-count sweeps need no edits:
-#   sbatch --array=4,5 --export=ALL,EPS0=0.2 slurm/interpolant/02_eval_array.sh
-N_STEPS="${N_STEPS:-20}"
-SKIP="${SKIP:-50}"
-K_SAMPLES="${K_SAMPLES:-10}"
-EPS0="${EPS0:-0.0}"   # 0.0 = deterministic sampler
-
-CONDA_ENV="${CONDA_ENV:-/trace/group/forgelab/ngng/envs/diffusion_SR}"
+REPO="$CL_REPO"
+RUNS="$CL_RUNS"
+CFGS="$CL_CFGS"
+ENC_DIR="$CL_ENC_DIR"
+OUT="$CL_EVAL_OUT"
+DATA="$CL_DATA"
 
 cd "$REPO"
-source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
-conda activate "$CONDA_ENV"
+cluster_activate_env
 mkdir -p logs/interpolant "$OUT"
 
 TASK=$SLURM_ARRAY_TASK_ID
@@ -109,7 +103,7 @@ if [ "$TASK" -eq 0 ] || [ "$TASK" -eq 11 ]; then
       --run_name    "$NAME" \
       --model_dir   "$MODEL_DIR" \
       --enc_dir     "$ENC_DIR" \
-      --data_root   /trace/group/forgelab/ngng/multifield/data_fields \
+      --data_root   "$DATA" \
       --field_names temperature \
       --harness     "$HARNESS" \
       --skip        "$SKIP" \

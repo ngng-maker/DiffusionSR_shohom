@@ -2,8 +2,9 @@
 # Master submit script: DiffusionSR baseline vs stochastic interpolants.
 #
 # Usage (from the repo root on the TRACE login node):
-#   cd /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
-#   bash slurm/interpolant/submit_all.sh
+#   cd <repo root on this cluster>
+#   CLUSTER=trace    bash slurm/interpolant/submit_all.sh   # the default
+#   CLUSTER=orchard  bash slurm/interpolant/submit_all.sh
 #
 # Only the attributable comparison (baseline + the five encoder arms):
 #   ARMS=0-5 bash slurm/interpolant/submit_all.sh
@@ -35,24 +36,30 @@
 
 set -eo pipefail
 
-REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
+REPO_GUESS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$REPO_GUESS/slurm/cluster_env.sh"
+REPO="$CL_REPO"
 cd "$REPO"
 mkdir -p logs/interpolant
+
+# The SBATCH directives inside the array scripts are parsed before the shell runs and cannot
+# read the profile, so the cluster-specific resource request is supplied here instead. A value
+# given on the sbatch command line overrides the #SBATCH directive in the file.
+RESOURCE_ARG="--partition=$CL_PARTITION --gres=$CL_GRES $CL_EXTRA_SBATCH"
+echo "cluster=$CLUSTER  partition=$CL_PARTITION  gres=$CL_GRES  ${CL_EXTRA_SBATCH:-(no extra flags)}"
 
 # ARMS selects which array indices to run. Default is all 11; "0-5" gives just the attributable
 # comparison, which is the cheaper and more informative first pass.
 ARMS="${ARMS:-0-11}"
 
-EXPORT_ARG=""
-if [ -n "${CONDA_ENV:-}" ]; then
-  EXPORT_ARG="--export=ALL,CONDA_ENV=$CONDA_ENV"
-  echo "Using conda env: $CONDA_ENV"
-fi
+# CLUSTER must reach the compute node so the array scripts resolve the same profile.
+EXPORT_ARG="--export=ALL,CLUSTER=$CLUSTER"
+if [ -n "${PY_OVERLAY:-}" ]; then EXPORT_ARG="$EXPORT_ARG,PY_OVERLAY=$PY_OVERLAY"; fi
 
 # Fail early rather than after queueing: tasks 0-5 all need this checkpoint, and without
 # --force_enc_dir pointing at a real one, train_srdiff would train a FRESH encoder and silently
 # break the "same encoder as DiffusionSR" property the whole comparison depends on.
-ENC_DIR=$REPO/diffusionsr/runs/ablation_20260901/enc_temp
+ENC_DIR="$CL_ENC_DIR"
 if [ ! -f "$ENC_DIR/bestmodel_saved.pth" ]; then
   echo "ERROR: the shared frozen encoder is missing:"
   echo "         $ENC_DIR/bestmodel_saved.pth"
@@ -64,7 +71,7 @@ echo "Shared frozen encoder found: $ENC_DIR"
 
 echo "=== Phase 1: training array (tasks $ARMS) ==="
 # --parsable makes sbatch print only the job ID, so it can be captured for the dependency.
-TRAIN_JID=$(sbatch --parsable --array="$ARMS" $EXPORT_ARG slurm/interpolant/01_train_array.sh)
+TRAIN_JID=$(sbatch --parsable --array="$ARMS" $RESOURCE_ARG $EXPORT_ARG slurm/interpolant/01_train_array.sh)
 echo "  Training array job ID: $TRAIN_JID"
 
 echo "=== Phase 2: eval array (tasks $ARMS) -- depends on $TRAIN_JID ==="
@@ -73,7 +80,7 @@ echo "=== Phase 2: eval array (tasks $ARMS) -- depends on $TRAIN_JID ==="
 EVAL_JID=$(sbatch --parsable \
   --dependency=afterok:"$TRAIN_JID" \
   --array="$ARMS" \
-  $EXPORT_ARG \
+  $RESOURCE_ARG $EXPORT_ARG \
   slurm/interpolant/02_eval_array.sh)
 echo "  Eval array job ID: $EVAL_JID"
 

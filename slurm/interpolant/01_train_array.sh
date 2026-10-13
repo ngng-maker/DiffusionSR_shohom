@@ -2,6 +2,9 @@
 #SBATCH --job-name=si_train
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:a40:1
+# NOTE: SBATCH directives are parsed BEFORE the shell runs, so they cannot read
+# $CL_PARTITION / $CL_GRES. These are TRACE defaults; submit_all.sh overrides them on the
+# sbatch command line from the cluster profile, and a command-line value wins.
 #SBATCH --time=2-00:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -46,24 +49,21 @@
 
 set -eo pipefail
 
-export WANDB_ENTITY=ngng-
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}
 mkdir -p "$WANDB_CACHE_DIR"
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
-REPO=/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom
-RUNS=$REPO/diffusionsr/runs/interpolant
-CFGS=$REPO/diffusionsr/configs/stochastic_interpolant
-# The frozen encoder shared by task 0 and tasks 1-5. Already trained by the ablation_20260901
-# experiment, so this study does not depend on the FNO encoder work at all.
-ENC_DIR=$REPO/diffusionsr/runs/ablation_20260901/enc_temp
+# All cluster-specific values come from the profile, so this script is machine-agnostic.
+REPO_GUESS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$REPO_GUESS/slurm/cluster_env.sh"
 
-CONDA_ENV="${CONDA_ENV:-/trace/group/forgelab/ngng/envs/diffusion_SR}"
+REPO="$CL_REPO"
+RUNS="$CL_RUNS"
+CFGS="$CL_CFGS"
+ENC_DIR="$CL_ENC_DIR"
 
 cd "$REPO"
-# A non-interactive SLURM shell has no `conda` shell function until this profile is sourced.
-source /trace/packages/anaconda3/2023.03-1/etc/profile.d/conda.sh
-conda activate "$CONDA_ENV"
+cluster_activate_env
 mkdir -p logs/interpolant
 
 TASK=$SLURM_ARRAY_TASK_ID
@@ -120,6 +120,7 @@ if [ ! -f "$RUNS/$NAME/wandb_run_name.txt" ]; then
 fi
 
 python -m diffusionsr.runners.train_srdiff \
+  --data_root         "$CL_DATA" \
   --config            "$CFGS/$CFG.yml" \
   --modeltype         "$MTYPE" \
   --gpu               0 \
