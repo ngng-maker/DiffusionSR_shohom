@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-10
+#SBATCH --array=0-11
 #SBATCH --output=logs/interpolant/eval_%a_%j.log
 #SBATCH --error=logs/interpolant/eval_%a_%j.err
 #SBATCH --requeue
@@ -69,11 +69,12 @@ if [ "$EPS0" != "0.0" ] || [ "$N_STEPS" != "20" ]; then
 fi
 
 # MUST match 01_train_array.sh index for index.
-CONFIGS=(baseline_diffusionsr_temp \
+CONFIGS=(baseline_ddpm_matched_temp \
          si_opt_a_sigma005_enc_temp si_opt_a_sigma010_enc_temp si_opt_a_sigma020_enc_temp \
          si_opt_b_c010_enc_temp     si_opt_b_c025_enc_temp \
          si_opt_a_sigma005_ulr_temp si_opt_a_sigma010_ulr_temp si_opt_a_sigma020_ulr_temp \
-         si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp)
+         si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp \
+         baseline_diffusionsr_temp)
 
 CFG=${CONFIGS[$TASK]}
 NAME="si_${CFG}"
@@ -97,15 +98,20 @@ fi
 
 echo "=== Task $TASK: evaluating $CFG ==="
 
-if [ "$TASK" -eq 0 ]; then
-  # --- the DiffusionSR baseline ---
-  echo "    DDPM baseline, DDIM skip=$SKIP (= $((1000/SKIP)) steps), K=$K_SAMPLES"
+if [ "$TASK" -eq 0 ] || [ "$TASK" -eq 11 ]; then
+  # --- the two DDPM reference points ---
+  # Task 0 was trained in the coupled harness, so its checkpoint carries EMA weights and must be
+  # rebuilt as DDPMMatchedHarnessModel. Task 11 came from the plain DiffusionModel loop. Passing the
+  # wrong --harness would load weights into the wrong class, so it is derived, not assumed.
+  if [ "$TASK" -eq 0 ]; then HARNESS=coupled; else HARNESS=plain; fi
+  echo "    DDPM baseline (harness=$HARNESS), DDIM skip=$SKIP (= $((1000/SKIP)) steps), K=$K_SAMPLES"
   python -m diffusionsr.analysis.evaluate_baseline_matched \
       --run_name    "$NAME" \
       --model_dir   "$MODEL_DIR" \
       --enc_dir     "$ENC_DIR" \
       --data_root   /trace/group/forgelab/ngng/multifield/data_fields \
       --field_names temperature \
+      --harness     "$HARNESS" \
       --skip        "$SKIP" \
       --k_samples   "$K_SAMPLES" \
       --out_dir     "$OUT/$NAME$SWEEP_TAG" \

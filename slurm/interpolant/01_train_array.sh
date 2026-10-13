@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-10
+#SBATCH --array=0-11
 #SBATCH --output=logs/interpolant/train_%a_%j.log
 #SBATCH --error=logs/interpolant/train_%a_%j.err
 #SBATCH --requeue
@@ -71,15 +71,20 @@ DATE=$(date +"%d_%b_%Y")
 
 # Index order is load-bearing: it must match 02_eval_array.sh exactly, or an arm gets evaluated
 # with another arm's settings.
-CONFIGS=(baseline_diffusionsr_temp \
+CONFIGS=(baseline_ddpm_matched_temp \
          si_opt_a_sigma005_enc_temp si_opt_a_sigma010_enc_temp si_opt_a_sigma020_enc_temp \
          si_opt_b_c010_enc_temp     si_opt_b_c025_enc_temp \
          si_opt_a_sigma005_ulr_temp si_opt_a_sigma010_ulr_temp si_opt_a_sigma020_ulr_temp \
-         si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp)
+         si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp \
+         baseline_diffusionsr_temp)
 
 CFG=${CONFIGS[$TASK]}
-# Task 0 is the DDPM baseline; everything else goes through CoupledInterpolantModel.
-if [ "$TASK" -eq 0 ]; then MTYPE=diffusion; else MTYPE=coupled; fi
+# Task 11 is the AS-PUBLISHED DiffusionSR and must use the plain DiffusionModel loop (no EMA, no
+# gradient clipping, fixed LR, SimulationXZDataset). It is a reference point, not the comparison.
+# Every other task -- including task 0 -- runs through the SHARED coupled harness, where the
+# config's si_process key selects DDPM vs interpolant. That is what makes task 0 vs task 2 differ
+# in the generative process ALONE.
+if [ "$TASK" -eq 11 ]; then MTYPE=diffusion; else MTYPE=coupled; fi
 NAME="si_${CFG}"
 WNAME="${DATE}_${NAME}"
 

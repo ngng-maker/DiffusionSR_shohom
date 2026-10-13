@@ -87,6 +87,19 @@ def main():
     parser.add_argument('--wandb_entity', default=os.getenv('WANDB_ENTITY', ''))
     parser.add_argument('--wandb_project', default='Flow3D_SuperResolution')
     parser.add_argument('--artifact_name', default=None)
+    # Which training harness produced this checkpoint. The two baselines are NOT interchangeable:
+    #   'coupled' -> trained by DDPMMatchedHarnessModel through CoupledInterpolantModel.train(),
+    #                so the checkpoint carries EMA weights and the model must be rebuilt as that
+    #                subclass. This is the harness-matched baseline, the attributable comparison.
+    #   'plain'   -> trained by DiffusionModel.train(). The as-published DiffusionSR, kept as a
+    #                reference point; it differs from the SI arms by four harness features as well
+    #                as by the generative process.
+    parser.add_argument('--harness', default='coupled', choices=['coupled', 'plain'],
+                        help="which training loop produced the checkpoint; determines the class "
+                             "rebuilt here and whether EMA weights are loaded")
+    parser.add_argument('--use_ema', action='store_true', default=True,
+                        help='load the EMA weights (harness=coupled only); EMA is standard practice '
+                             'and the SI arms are evaluated the same way')
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -95,7 +108,6 @@ def main():
     # The metric code, imported rather than reimplemented. Any change the other session makes to
     # these metrics automatically applies to the baseline too, which is the point of importing.
     from diffusionsr.analysis.evaluate_coupled import evaluate
-    from diffusionsr.runners.train_diffusion import DiffusionModel
 
     # FlippedDataset with p_flip=0.0 is used (not SimulationXZDataset) so the baseline sees exactly
     # the same data pipeline as the SI arms -- the flip augmentation is disabled at eval for both.
@@ -123,7 +135,7 @@ def main():
     del peek  # Free the checkpoint before building the model, which allocates again
     print(f'Recovered U-Net dim={unet_dim} from checkpoint')
 
-    model = DiffusionModel(
+    common = dict(
         results_folder=args.model_dir,
         lr_encoder_folder=args.enc_dir,
         train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
@@ -136,12 +148,27 @@ def main():
         image_size_override=unet_dim,  # Use the checkpoint's dim, not the dataset's
     )
 
-    if os.path.exists(best_path):
-        checkpoint = torch.load(best_path, map_location=device)
-        model.model.load_state_dict(checkpoint[0])  # Element 0 is the model state dict
-        print('Loaded bestmodel_saved.pth')
+    if args.harness == 'coupled':
+        # The harness-matched baseline. Rebuilt as the same subclass that trained it, so the
+        # restored weights land in the architecture they were trained in.
+        from diffusionsr.runners.train_ddpm_matched import DDPMMatchedHarnessModel
+        model = DDPMMatchedHarnessModel(sigma=0.1, gamma_c=0.0, si_cond='enc_implicit',
+                                        fm_timescale=1000.0, **common)
     else:
-        model.load_saved_model()  # Falls back to the inherited restart-checkpoint loader
+        from diffusionsr.runners.train_diffusion import DiffusionModel
+        model = DiffusionModel(**common)
+
+    checkpoint = torch.load(load_path, map_location=device)
+    if args.harness == 'coupled' and args.use_ema and len(checkpoint) > 5 and checkpoint[5] is not None:
+        # CoupledInterpolantModel.train() stores the EMA shadow weights at index 5. The SI arms are
+        # evaluated from their EMA weights, so the baseline must be too or the comparison is unfair
+        # in the baseline's disfavour.
+        from diffusionsr.utils import remove_module_prefix
+        model.model.load_state_dict(remove_module_prefix(checkpoint[5]))
+        print(f'Loaded EMA weights from {os.path.basename(load_path)}')
+    else:
+        model.model.load_state_dict(checkpoint[0])  # Element 0 is the raw model state dict
+        print(f'Loaded raw weights from {os.path.basename(load_path)}')
     model.model.eval()  # Disable dropout/batchnorm updates during sampling
 
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)

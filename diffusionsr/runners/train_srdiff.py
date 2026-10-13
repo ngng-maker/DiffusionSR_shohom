@@ -469,7 +469,17 @@ if modeltype == 'encoder':
 # ── COUPLED STOCHASTIC INTERPOLANT ────────────────────────────────────────────
 if modeltype == 'coupled':
     from diffusionsr.datasets.flipped_dataset import FlippedDataset
-    from diffusionsr.runners.train_coupled import CoupledInterpolantModel
+    # si_process selects the GENERATIVE PROCESS while leaving the training harness identical.
+    # 'interpolant' (default) is the stochastic interpolant; 'ddpm' runs a standard DDPM through the
+    # very same loop (EMA, grad clipping, per-step LR schedule, FlippedDataset), which is what makes
+    # the comparison attributable to the process rather than to the harness.
+    si_process = str(getattr(new_config, 'si_process', 'interpolant')).strip().lower()
+    if si_process == 'ddpm':
+        from diffusionsr.runners.train_ddpm_matched import DDPMMatchedHarnessModel as _SIModelClass
+    elif si_process == 'interpolant':
+        from diffusionsr.runners.train_coupled import CoupledInterpolantModel as _SIModelClass
+    else:
+        raise ValueError(f"si_process must be 'interpolant' or 'ddpm', got {si_process!r}")
 
     si_sigma     = float(getattr(new_config, 'si_sigma',     0.1))
     si_gamma_c   = float(getattr(new_config, 'si_gamma_c',   0.0))
@@ -503,7 +513,8 @@ if modeltype == 'coupled':
     if diffusion_run_dir_fixed:
         si_results_dir = diffusion_run_dir_fixed
     else:
-        si_tag = f'si_s{int(si_sigma*100):03d}_g{int(si_gamma_c*100):03d}_{si_cond}'
+        _proc_tag = 'ddpm' if si_process == 'ddpm' else 'si'
+        si_tag = f'{_proc_tag}_s{int(si_sigma*100):03d}_g{int(si_gamma_c*100):03d}_{si_cond}'
         si_results_dir = os.path.join(
             'runs', downscale_method, si_tag,
             datetime_string, normalize_method, f'n_steps_{n_steps}')
@@ -511,9 +522,9 @@ if modeltype == 'coupled':
     os.makedirs(si_results_dir, exist_ok=True)
     shutil.copy(config_path, os.path.join(si_results_dir, 'configuration.yml'))
 
-    print("Training Coupled Stochastic Interpolant...")
+    print(f"Training with si_process={si_process} (harness: EMA + grad clip + StepLR + FlippedDataset)")
 
-    coupled_model = CoupledInterpolantModel(
+    coupled_model = _SIModelClass(
         results_folder=si_results_dir,
         lr_encoder_folder=encoder_results_dir,
         train_dataset=train_dataset_si,
