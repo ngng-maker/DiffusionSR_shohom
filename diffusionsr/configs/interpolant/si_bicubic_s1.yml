@@ -1,0 +1,54 @@
+# Stochastic interpolant with a data-dependent coupling.
+# Levels 2 + 3 of the framework ladder in FNO/INTERPOLANT_PLAN.md section 0.2b:
+#   level 1 (independent coupling, ODE) already exists as --modeltype flow_matching
+#   level 2 = the data-dependent coupling below
+#   level 3 = the SDE, reached by setting epsilon > 0 AT SAMPLING TIME
+#
+# I_t = (1-t)*x0 + t*x1,  gamma_t = 0   (couplings paper Eq. 20)
+#   x0 = U(D(x1)) + sigma*zeta - upscaled LR, the paper's setup (control)
+#   x1 = the HR field
+# Velocity target x1 - x0 is constant along the path. The score head is trained unconditionally so
+# that epsilon stays a sampling-time knob - ONE training run covers the whole epsilon sweep, with
+# epsilon = 0 recovering the probability-flow ODE exactly.
+#
+# loss_type is l2 here, not the repo's usual huber: Theorem 3.1 characterises the velocity and score
+# as minimisers of *quadratic* objectives, so L2 is the loss the theory actually assumes.
+#
+# BEFORE RUNNING: set si_sigma from the data rather than this placeholder -
+#   sigma = std(x1 - base) over the training split  (INTERPOLANT_PLAN.md section 2.5)
+# For the bicubic arm that is the cached std_resid; for the encoder arm it needs one pass with the
+# trained encoder. A wrong sigma is not fatal but it mis-scales the base's spread.
+#
+# Run: python -m diffusionsr.runners.train_srdiff --config <this> --modeltype stochastic_interpolant
+
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+encoding: True
+residual_flag: false
+conditioning: "implicit"
+normalize_method: "standardize"
+schedule: "linear"
+fields: "temperature"
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5e-5
+use_pretrained: False
+loss_type: "l2"
+encoder_type: "fno"
+encoder_kwargs:
+  feature_channels: 64
+  latent_channels: 32
+  num_fno_layers: 4
+  num_fno_modes: [18, 20]
+  padding: 8
+  upsample_mode: "pre"
+  backend: "builtin"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_fno_pre"
+
+si_base: "bicubic"
+si_sigma: 1.0              # TRAINING hyperparameter: enters the interpolant
+si_epsilon: 0.0           # SAMPLING default only; sweep at eval, 0.0 = ODE
+si_n_steps: 50            # default Euler steps; swept at eval
+si_score_weight: 1.0      # relative weight of the score regression
