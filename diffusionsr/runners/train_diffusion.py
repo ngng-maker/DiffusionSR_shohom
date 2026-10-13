@@ -1,4 +1,5 @@
 import os
+import time
 from inspect import isfunction
 from pathlib import Path
 from torch.optim import Adam
@@ -737,6 +738,7 @@ class DiffusionModel():
             if os.path.exists(_vlf):
                 all_test_losses = list(np.loadtxt(_vlf).reshape(-1))
 
+        _train_t0 = time.time()
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
             # Resample a random subset of the training set each epoch
             if self.epoch_subsample_frac is not None and self.epoch_subsample_frac < 1.0:
@@ -867,6 +869,12 @@ class DiffusionModel():
                     pass
         except Exception as _e:
             print(f"Loss-curve plot skipped: {_e}")
+
+        # Record total wall-clock training time
+        _training_time_s = time.time() - _train_t0
+        np.savetxt(os.path.join(self.results_folder, 'training_time.txt'), [_training_time_s])
+        if wandb.run is not None:
+            wandb.run.summary['training_time_s'] = _training_time_s
 
         if wandb.run is not None:
             cleanup_old_checkpoint_versions(wandb.run.name)

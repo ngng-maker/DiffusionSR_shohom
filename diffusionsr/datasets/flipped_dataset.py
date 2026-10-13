@@ -39,25 +39,39 @@ class FlippedDataset(SimulationXZDataset):
         super().__init__(*args, **kwargs)
         self.p_flip = p_flip
 
-        # Cache stats as float32 tensors with a batch dim so broadcasting is trivial.
-        # Shape: (1, C, H, W) — the leading 1 broadcasts over the batch in train_coupled.
-        # These are stored on CPU; train_coupled.ulr_to_hr() moves them to the right device.
-        std_min = 1.0   # minimum std in Kelvin, prevents division by ~0
+        # Cache stats as float32 tensors for use in __getitem__.
+        # For 'standardize' (pixel-wise): shape (C, H, W); std clamped at 1 K.
+        # For 'global_standardize': shape (C,) → reshaped to (C, 1, 1) for broadcast;
+        #   global std is ~hundreds of K so no clamp needed (kept for safety).
+        std_min = 1.0
 
         def _t(arr):
             return torch.tensor(np.array(arr, dtype=np.float32))
 
-        self._mean_hr_t   = _t(self.mean_hr)           # (C, H, W)
-        self._std_hr_t    = _t(self.std_hr).clamp(min=std_min)
-        self._mean_lr_t   = _t(self.mean_lr)
-        self._std_lr_t    = _t(self.std_lr).clamp(min=std_min)
-        self._mean_ulr_t  = _t(self.mean_upscaled_lr)
-        self._std_ulr_t   = _t(self.std_upscaled_lr).clamp(min=std_min)
-        # Residual stats (may not exist on all datasets — fall back to HR stats)
-        _mean_res = getattr(self, 'mean_residual', self.mean_hr)
-        _std_res  = getattr(self, 'std_residual',  self.std_hr)
-        self._mean_res_t  = _t(_mean_res)
-        self._std_res_t   = _t(_std_res).clamp(min=std_min)
+        def _t_global(arr):
+            # global stats are 1-D (C,); add spatial dims for broadcast over (C, H, W)
+            return torch.tensor(np.array(arr, dtype=np.float32)).unsqueeze(-1).unsqueeze(-1)
+
+        if self.normalize == 'global_standardize':
+            self._mean_hr_t  = _t_global(self.global_mean_hr)
+            self._std_hr_t   = _t_global(self.global_std_hr).clamp(min=std_min)
+            self._mean_lr_t  = _t_global(self.global_mean_lr)
+            self._std_lr_t   = _t_global(self.global_std_lr).clamp(min=std_min)
+            self._mean_ulr_t = _t_global(self.global_mean_upscaled_lr)
+            self._std_ulr_t  = _t_global(self.global_std_upscaled_lr).clamp(min=std_min)
+            self._mean_res_t = _t_global(self.global_mean_resid)
+            self._std_res_t  = _t_global(self.global_std_resid).clamp(min=std_min)
+        else:  # 'standardize' (pixel-wise) or anything else — use per-pixel stats
+            self._mean_hr_t   = _t(self.mean_hr)
+            self._std_hr_t    = _t(self.std_hr).clamp(min=std_min)
+            self._mean_lr_t   = _t(self.mean_lr)
+            self._std_lr_t    = _t(self.std_lr).clamp(min=std_min)
+            self._mean_ulr_t  = _t(self.mean_upscaled_lr)
+            self._std_ulr_t   = _t(self.std_upscaled_lr).clamp(min=std_min)
+            _mean_res = getattr(self, 'mean_residual', self.mean_hr)
+            _std_res  = getattr(self, 'std_residual',  self.std_hr)
+            self._mean_res_t  = _t(_mean_res)
+            self._std_res_t   = _t(_std_res).clamp(min=std_min)
 
     # ------------------------------------------------------------------
     # Internal helpers

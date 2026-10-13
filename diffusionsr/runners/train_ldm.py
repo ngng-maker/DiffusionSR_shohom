@@ -13,6 +13,7 @@ Conditioning (matches DiffusionSR):
 The only variable vs. DiffusionSR is pixel-space vs. latent-space diffusion.
 """
 import os
+import time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -70,6 +71,7 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
 
     dev_dl = DataLoader(dev_dataset, batch_size=16, shuffle=False, drop_last=False)
 
+    _vae_t0 = time.time()
     for epoch in tqdm(range(start_epoch, num_epochs)):
         if epoch_subsample_frac is not None and epoch_subsample_frac < 1.0:
             n_sub = max(16, int(epoch_subsample_frac * len(train_dataset)))
@@ -125,7 +127,10 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
             upload_checkpoint_artifact(str(ckpt_path), wandb.run.name + '_vae',
                                        epoch, is_best=False)
 
+    _vae_time_s = time.time() - _vae_t0
+    np.savetxt(results_dir / 'vae_training_time.txt', [_vae_time_s])
     if wandb.run is not None:
+        wandb.run.summary['vae_training_time_s'] = _vae_time_s
         cleanup_old_checkpoint_versions(wandb.run.name + '_vae')
     return num_epochs
 
