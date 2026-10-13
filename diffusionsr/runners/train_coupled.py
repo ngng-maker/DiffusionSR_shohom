@@ -21,6 +21,7 @@ Usage (via CLI):
 
 import copy
 import os
+import time  # wall-clock training duration, written to training_time.txt
 from pathlib import Path
 
 import numpy as np
@@ -222,6 +223,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
         wandb_entity: str = '',
         wandb_project: str = 'Flow3D_SuperResolution',
         wandb_config: dict | None = None,
+        # How often to mirror the checkpoints to W&B. Every epoch would be wasteful; never would
+        # mean a TRACE preemption loses everything since the last manual copy. 5 bounds the loss to
+        # 5 epochs while keeping the number of uploads small.
+        ckpt_every: int = 5,
     ):
         self.loss_type = loss_type
         self.batch_size = batch_size
@@ -231,6 +236,11 @@ class CoupledInterpolantModel(FlowMatchingModel):
         # Per-step LR schedule: ×0.99 every 1000 gradient steps (coupling paper)
         self.scheduler = StepLR(self.optimizer, step_size=lr_step_size, gamma=lr_gamma)
 
+        _train_t0 = time.time()  # Captured before the restore branch so a restart still times the resumed leg
+        # Defined before the loop: the final bookkeeping block below references them, and a run that
+        # resumes at or past its last epoch never enters the loop at all.
+        ckpt_path = str(self.results_folder / 'ckpt.pth')
+        best_path = str(self.results_folder / 'bestmodel_saved.pth')
         start_epoch = 0
         global_step = 0
         best_val_loss = float('inf')
@@ -376,16 +386,54 @@ class CoupledInterpolantModel(FlowMatchingModel):
                 best_val_loss,
                 ema_model.state_dict(),   # save EMA weights alongside main weights
             ]
-            ckpt_path = str(self.results_folder / 'ckpt.pth')
-            torch.save(states, ckpt_path)
+            torch.save(states, ckpt_path)          # rolling checkpoint, every epoch, local disk
             if is_best:
-                torch.save(states, str(self.results_folder / 'bestmodel_saved.pth'))
-            _run_name = wandb.run.name if wandb.run is not None else 'run'
-            if is_best:
-                upload_checkpoint_artifact(ckpt_path, _run_name, epoch, is_best=True)
+                torch.save(states, best_path)      # best-so-far, local disk
+
+            # ---- W&B sync: exactly TWO files per run, refreshed periodically ----
+            # wandb.save() mirrors a file into the run's Files tab and OVERWRITES it in place, so a
+            # run ends up with one ckpt.pth and one bestmodel_saved.pth however long it trains.
+            #
+            # This replaces upload_checkpoint_artifact(), which was called on every is_best epoch.
+            # That creates a NEW VERSIONED artifact each call, and because val loss improves on most
+            # early epochs it produced dozens of versions per run. Worse,
+            # cleanup_old_checkpoint_versions() only ran after the final epoch, so a TRACE
+            # preemption left every version behind.
+            #
+            # Syncing every ckpt_every epochs (not every epoch) keeps the upload cost low while
+            # bounding how much progress a preemption can cost: at most ckpt_every epochs.
+            is_last_epoch = (epoch == epochs - 1)
+            if wandb.run is not None and (epoch % ckpt_every == 0 or is_last_epoch):
+                wandb.save(ckpt_path, base_path=str(self.results_folder), policy='now')
+                if os.path.exists(best_path):
+                    wandb.save(best_path, base_path=str(self.results_folder), policy='now')
+                print(f'  [wandb] synced ckpt.pth + bestmodel_saved.pth at epoch {epoch}')
+
+            # Keep the run summary current rather than writing it only at the end, so an
+            # interrupted run still reports its best loss in the W&B table.
+            if wandb.run is not None:
+                wandb.run.summary['best_val_loss'] = best_val_loss
+                wandb.run.summary['last_epoch'] = epoch
+                wandb.run.summary['train_loss_final'] = mean_train
+                wandb.run.summary['val_loss_final'] = mean_val
+
+        # ---- Final bookkeeping ----
+        # training_time.txt is what the comparison notebooks read for the wall-clock chart;
+        # train_diffusion.py writes it but this loop did not, so coupled runs were missing from it.
+        _training_time_s = time.time() - _train_t0
+        np.savetxt(str(self.results_folder / 'training_time.txt'), [_training_time_s])
+        print(f'Training time: {_training_time_s / 3600:.2f} h')
 
         if wandb.run is not None:
-            cleanup_old_checkpoint_versions(wandb.run.name)
+            wandb.run.summary['training_time_s'] = _training_time_s
+            # Final sync so the very last weights are on W&B even if the loop ended off-cadence.
+            if os.path.exists(best_path):
+                wandb.save(best_path, base_path=str(self.results_folder), policy='now')
+            # Still prune any versioned artifacts left behind by an earlier run of this code.
+            try:
+                cleanup_old_checkpoint_versions(wandb.run.name)
+            except Exception as _cleanup_error:  # Never let cleanup failure lose a finished run
+                print(f'  [wandb] artifact cleanup skipped: {_cleanup_error}')
             wandb.finish()
 
     # ------------------------------------------------------------------

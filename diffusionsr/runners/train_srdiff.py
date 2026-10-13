@@ -485,6 +485,9 @@ if modeltype == 'coupled':
     si_gamma_c   = float(getattr(new_config, 'si_gamma_c',   0.0))
     si_cond      = str(  getattr(new_config, 'si_cond',      'ulr_concat'))
     fm_timescale = float(getattr(new_config, 'fm_timescale', 1000.0))
+    # How often the checkpoints are mirrored to W&B. Small enough that a TRACE preemption costs at
+    # most this many epochs; large enough that the run's Files tab is not rewritten every epoch.
+    ckpt_every   = int(  getattr(new_config, 'ckpt_every',   5))
     ema_decay    = float(getattr(new_config, 'ema_decay',    0.999))
     grad_clip    = float(getattr(new_config, 'grad_clip',    1.0))
     p_flip       = float(getattr(new_config, 'p_flip',       0.2))
@@ -547,6 +550,7 @@ if modeltype == 'coupled':
         grad_clip=grad_clip,
     )
     coupled_model.train(
+        ckpt_every=ckpt_every,
         epochs=epochs,
         restart=restart,
         restart_dir=restart_dir,
