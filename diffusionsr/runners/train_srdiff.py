@@ -22,8 +22,7 @@ def parse_args_and_config():
     parser.add_argument('--gpu', type=str, default="7",
                         help='Index of GPU to use')
     parser.add_argument('--modeltype', type=str, default='mobilenet',
-                        help="SR model to run. Options: diffusion | flow_matching | stochastic_interpolant | "
-                             "uncond_diffusion | ldm | encoder | mobilenet")
+                        help="SR model to run. Options: diffusion | flow_matching | uncond_diffusion | ldm | encoder | mobilenet")
     parser.add_argument('--restart_dir', type=str, default='',
                         help="Legacy: diffusion restart dir (use --force_run_dir instead)")
     # Stable-path args for preemption-safe SLURM restart
@@ -337,79 +336,6 @@ if modeltype == 'flow_matching':
         encoder_kwargs=encoder_kwargs,
     )
     fm_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
-                   batch_size=batch_size, learning_rate=learning_rate,
-                   loss_type=loss_type)
-
-
-# ── STOCHASTIC INTERPOLANT (data-dependent coupling) ──────────────────────────
-if modeltype == 'stochastic_interpolant':
-    from diffusionsr.runners.train_stochastic_interpolant import StochasticInterpolantModel
-    # si_base selects the coupling: 'enc' starts the transport at the frozen encoder's own HR field
-    # prediction, 'bicubic' at the upscaled LR (the couplings paper's setup, used as the control).
-    si_base = getattr(new_config, 'si_base', 'enc')
-    # sigma smooths the base off the lower-dimensional manifold it would otherwise sit on; it is a
-    # TRAINING hyperparameter because it enters the interpolant itself.
-    si_sigma = float(getattr(new_config, 'si_sigma', 1.0))
-    # epsilon is a SAMPLING parameter (0 = probability-flow ODE). The score head is trained either
-    # way, so one training run covers the whole epsilon sweep; this is only the eval-time default.
-    si_epsilon = float(getattr(new_config, 'si_epsilon', 0.0))
-    si_n_steps = int(getattr(new_config, 'si_n_steps', 50))
-    si_timescale = float(getattr(new_config, 'si_timescale', timesteps))
-    si_score_weight = float(getattr(new_config, 'si_score_weight', 1.0))
-
-    if encoding_flag:
-        if args.force_enc_dir:
-            encoder_results_dir = args.force_enc_dir
-        elif use_pretrained:
-            encoder_results_dir = new_config.encoder_results_dir
-        else:
-            encoder_results_dir = os.path.join(
-                'runs', downscale_method, 'encoder', datetime_string,
-                normalize_method, f'n_steps_{n_steps}')
-        _run_or_skip_encoder(encoder_results_dir)
-    else:
-        encoder_results_dir = 'no_encoder_used'
-
-    if diffusion_run_dir_fixed:
-        diffusion_results_dir = diffusion_run_dir_fixed
-    else:
-        diffusion_results_dir = os.path.join(
-            'runs', downscale_method,
-            f'stochinterp_{si_base}{conditioning}{encoder}',
-            datetime_string, normalize_method, f'n_steps_{n_steps}')
-
-    os.makedirs(diffusion_results_dir, exist_ok=True)
-    shutil.copy(config_path,
-                os.path.join(diffusion_results_dir, 'configuration.yml'))
-
-    print(f"Training Stochastic Interpolant... base={si_base} sigma={si_sigma} "
-          f"(epsilon={si_epsilon} is a sampling-time default only)")
-    _init_wandb()
-
-    si_model = StochasticInterpolantModel(
-        results_folder=diffusion_results_dir,
-        lr_encoder_folder=encoder_results_dir,
-        train_dataset=train_dataset,
-        dev_dataset=dev_dataset,
-        test_dataset=test_dataset,
-        timesteps=timesteps,
-        conditioning=conditioning,
-        encoding=encoding_flag,
-        schedule=schedule,
-        device='cuda:0',
-        enc_output=enc_output,
-        out_steps=out_steps,
-        transform_rescale=transform_rescale,
-        encoder_type=encoder_type,
-        encoder_kwargs=encoder_kwargs,
-        si_base=si_base,
-        si_sigma=si_sigma,
-        si_epsilon=si_epsilon,
-        si_n_steps=si_n_steps,
-        si_timescale=si_timescale,
-        si_score_weight=si_score_weight,
-    )
-    si_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                    batch_size=batch_size, learning_rate=learning_rate,
                    loss_type=loss_type)
 
