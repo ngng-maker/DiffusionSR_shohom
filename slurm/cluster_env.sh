@@ -32,24 +32,29 @@ case "$CLUSTER" in
     ;;
 
   orchard)
-    # ---- ORCHARD (NOT YET FILLED IN) ----------------------------------------------------
-    # Every value below is a guess and will not work as written. Run
-    #     bash slurm/discover_cluster.sh
-    # on an ORCHARD login node and replace these with what it prints.
+    # ---- ORCHARD (from discover_cluster.sh on orchard-login-001, 2026-10-13) --------------
+    # SLURM 26.05; every node is 8x H100 80GB (driver 580, CUDA 13.0) and GRES names no type,
+    # so gpu:1 is exact rather than generic. Account oogoke has two usable QoS:
+    #   general_qos  -- 12 h wall limit, 1 GPU and 1 job per user: cannot fit a 2-day training array.
+    #   preempt_qos  -- 2-day wall limit, up to 32 GPUs / 24 jobs. Jobs can be preempted, which is
+    #                   safe here: the job scripts pass --requeue and train_coupled resumes from the
+    #                   per-epoch ckpt.pth and the same W&B run.
+    # No conda is installed; Miniforge goes in $HOME (1.3 TB free, no separate scratch filesystem).
+    # The login node's /tmp is full, so installs must set TMPDIR=$HOME/tmp.
     #
-    # The CL_ENC_DIR one is the important one: the comparison conditions both arms on a specific
-    # trained encoder checkpoint. It does not exist on ORCHARD yet, so it must either be copied
-    # across (see slurm/orchard/00_bootstrap.sh) or retrained there first -- and if retrained, the
-    # numbers are not comparable with any TRACE results.
-    CL_REPO="${CL_REPO:-$HOME/DiffusionSR_shohom}"
+    # CL_ENC_DIR is the important one: the comparison conditions both arms on a specific trained
+    # encoder checkpoint, which must be copied from TRACE (see slurm/orchard/00_bootstrap.sh).
+    # Retraining it on ORCHARD makes the numbers incomparable with any TRACE results.
+    CL_REPO="${CL_REPO:-$HOME/LPBFDiffusionSR_dev}"
     CL_DATA="${CL_DATA:-$HOME/data_fields}"
-    CL_CONDA_SH="${CL_CONDA_SH:-}"                  # empty => assume conda is already on PATH
+    CL_CONDA_SH="${CL_CONDA_SH:-$HOME/miniforge3/etc/profile.d/conda.sh}"
     CL_CONDA_ENV="${CL_CONDA_ENV:-$HOME/envs/diffusion_SR}"
-    CL_PARTITION="${CL_PARTITION:-gpu}"             # PLACEHOLDER
-    CL_GRES="${CL_GRES:-gpu:1}"                     # PLACEHOLDER: generic, no GPU type pinned
-    CL_EXTRA_SBATCH="${CL_EXTRA_SBATCH:-}"          # add --account=... / --qos=... if required
+    CL_PARTITION="${CL_PARTITION:-preempt}"
+    CL_GRES="${CL_GRES:-gpu:1}"
+    CL_EXTRA_SBATCH="${CL_EXTRA_SBATCH:---account=oogoke --qos=preempt_qos}"
     CL_WANDB_ENTITY="${CL_WANDB_ENTITY:-ngng-}"
     CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/ablation_20260901/enc_temp}"
+    CLUSTER_PROFILE_CONFIRMED=1
 
     if [ "${CLUSTER_PROFILE_CONFIRMED:-0}" != "1" ]; then
       echo "ERROR: the 'orchard' profile in slurm/cluster_env.sh still holds placeholder values."
