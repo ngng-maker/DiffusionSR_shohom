@@ -133,11 +133,14 @@ def upload_checkpoint_artifact(ckpt_path: str, run_name: str, epoch: int,
         type="checkpoint",
         metadata={"epoch": epoch},
     )
-    art.add_file(str(ckpt_path), name="ckpt.pth")
     aliases = ["latest", f"epoch_{epoch}"]
     if is_best:
         aliases.append("best")
-    wandb.run.log_artifact(art, aliases=aliases)
+    try:
+        art.add_file(str(ckpt_path), name="ckpt.pth")
+        wandb.run.log_artifact(art, aliases=aliases)
+    except Exception as _e:
+        print(f"W&B artifact upload skipped (non-fatal): {_e}")
 
 
 def cleanup_old_checkpoint_versions(run_name: str, project: str = None,
