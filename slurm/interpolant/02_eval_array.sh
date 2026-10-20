@@ -36,7 +36,8 @@ set -eo pipefail
 
 export WANDB_CACHE_DIR=/tmp/wandb_cache_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}
 mkdir -p "$WANDB_CACHE_DIR"
-trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
+# Single quotes: expanded at exit, after cluster_env.sh has (optionally) set a per-job WANDB_DATA_DIR.
+trap 'rm -rf "${WANDB_DATA_DIR:-$HOME/.local/share/wandb}/artifacts/staging/" "$WANDB_CACHE_DIR"' EXIT
 
 # All cluster-specific values come from the profile, so this script is machine-agnostic.
 # Locate the repo from SLURM_SUBMIT_DIR, NOT from BASH_SOURCE: sbatch runs a COPY of this script

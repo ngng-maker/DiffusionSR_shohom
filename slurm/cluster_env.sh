@@ -43,14 +43,24 @@ case "$CLUSTER" in
     #   preempt_qos  -- 2-day wall limit, up to 32 GPUs / 24 jobs. Jobs can be preempted, which is
     #                   safe here: the job scripts pass --requeue and train_coupled resumes from the
     #                   per-epoch ckpt.pth and the same W&B run.
-    # No conda is installed; Miniforge goes in $HOME (1.3 TB free, no separate scratch filesystem).
+    # STORAGE: $HOME has a hard 25 GB per-user quota that df does NOT show (df reports the whole
+    # 5 TB NFS export). Filling it failed every training task with "Disk quota exceeded" and left
+    # truncated loss files and a corrupt checkpoint. The repo (with all run outputs), the dataset
+    # and W&B's staging area therefore live on /project/community/$USER (5 TB free, no quota hit
+    # at 2 GB). ~/LPBFDiffusionSR_dev and ~/data_fields are symlinks there. Only Miniforge and the
+    # conda env (~7 GB, not relocatable) stay in $HOME.
     # The login node's /tmp is full, so installs must set TMPDIR=$HOME/tmp.
     #
     # CL_ENC_DIR is the important one: the comparison conditions both arms on a specific trained
     # encoder checkpoint, which must be copied from TRACE (see slurm/orchard/00_bootstrap.sh).
     # Retraining it on ORCHARD makes the numbers incomparable with any TRACE results.
-    CL_REPO="${CL_REPO:-$HOME/LPBFDiffusionSR_dev}"
-    CL_DATA="${CL_DATA:-$HOME/data_fields}"
+    CL_PROJECT="${CL_PROJECT:-/project/community/$USER}"
+    CL_REPO="${CL_REPO:-$CL_PROJECT/LPBFDiffusionSR_dev}"
+    CL_DATA="${CL_DATA:-$CL_PROJECT/data_fields}"
+    # W&B stages every checkpoint artifact (~400 MB) under ~/.local/share/wandb before uploading;
+    # with 12 tasks at once that alone can exhaust the home quota. One dir per job, so the EXIT trap
+    # in the job scripts clears only its own staging, not uploads still in flight in other tasks.
+    export WANDB_DATA_DIR="${WANDB_DATA_DIR:-$CL_PROJECT/.wandb_data/${SLURM_JOB_ID:-login}}"
     CL_CONDA_SH="${CL_CONDA_SH:-$HOME/miniforge3/etc/profile.d/conda.sh}"
     CL_CONDA_ENV="${CL_CONDA_ENV:-$HOME/envs/diffusion_SR}"
     CL_PARTITION="${CL_PARTITION:-preempt}"
