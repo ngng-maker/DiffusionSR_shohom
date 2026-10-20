@@ -1,5 +1,5 @@
 # SI Option B  c=0.25  sigma=0.1  enc_implicit  temp#
-# Uses the SAME frozen encoder as baseline_diffusionsr_temp.yml (ablation_20260901/enc_temp) and the
+# Uses the SAME frozen encoder as baseline_diffusionsr_temp.yml (fno_ablation/enc_rrdb) and the
 # same implicit 64-channel conditioning. Against that baseline the ONLY difference is the generative
 # process (DDPM -> stochastic interpolant), which is what makes the comparison attributable.
 #
@@ -10,7 +10,7 @@
 # make_x0(ulr_hr, sigma) = upscaled_lr + sigma*zeta (train_coupled.py:185) in every arm.
 #
 # use_pretrained is False, so train_srdiff would otherwise train a FRESH encoder. Pass
-#   --force_enc_dir /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/enc_temp
+#   --force_enc_dir /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb
 # to reuse the existing one.
 root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
 downscale_method: "direct"
@@ -34,4 +34,4 @@ conditioning: "implicit"
 si_sigma: 0.1
 si_gamma_c: 0.25
 si_cond: "enc_implicit"
-encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/enc_temp"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"

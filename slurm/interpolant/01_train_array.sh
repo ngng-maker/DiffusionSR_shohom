@@ -23,7 +23,7 @@
 # THE COMPARISON THIS IS BUILT FOR
 # --------------------------------
 # Task 0 is DiffusionSR (DDPM + frozen RRDB encoder). Tasks 1-5 use the SAME frozen encoder
-# (ablation_20260901/enc_temp) and the SAME implicit 64-channel conditioning, so against task 0 the
+# (fno_ablation/enc_rrdb) and the SAME implicit 64-channel conditioning, so against task 0 the
 # ONLY difference is the generative process: DDPM -> stochastic interpolant. Those five are the
 # attributable comparison.
 #

@@ -12,7 +12,7 @@
 # WHAT IS BEING COMPARED
 # ----------------------
 # Task 0 is DiffusionSR: DDPM conditioned on the frozen RRDB encoder
-# (ablation_20260901/enc_temp). Tasks 1-5 use THE SAME frozen encoder and THE SAME implicit
+# (fno_ablation/enc_rrdb). Tasks 1-5 use THE SAME frozen encoder and THE SAME implicit
 # 64-channel conditioning, so against task 0 the only thing that changes is the generative process:
 #
 #   DDPM            x_t = sqrt(abar_t) x0 + sqrt(1-abar_t) eps,  starting from pure noise
@@ -68,6 +68,29 @@ if [ ! -f "$ENC_DIR/bestmodel_saved.pth" ]; then
   exit 1
 fi
 echo "Shared frozen encoder found: $ENC_DIR"
+
+# The encoder's input width is n_steps x num_fields from the config it was trained with, so an
+# encoder trained with different n_steps or fields cannot load into these arms. That mismatch
+# (enc_temp, n_steps=3, against n_steps=1 configs) failed every encoder task with a conv1 size
+# mismatch seconds after it finally got a GPU, so compare before queueing anything.
+# The arm list is read from 01_train_array.sh so the check covers exactly the configs being trained.
+ARM_CFGS=$(sed -n '/^CONFIGS=(/,/)/p' slurm/interpolant/01_train_array.sh | sed 's/CONFIGS=//' | tr -d '()\\')
+python3 - "$ENC_DIR/configuration.yml" "$CL_CFGS" $ARM_CFGS <<'PYCHECK' || exit 1
+import sys, os, re
+def keys(path):   # plain regex rather than yaml: the login node's system python may lack PyYAML
+    txt = open(path).read()
+    get = lambda k: (re.search(rf'^{k}:\s*["\']?([^"\'\n#]+)', txt, re.M) or [None, None])[1]
+    return get('n_steps'), get('fields'), get('encoding')
+enc = keys(sys.argv[1])[:2]
+cfgs = [os.path.join(sys.argv[2], n + '.yml') for n in sys.argv[3:]]
+bad = [os.path.basename(c) for c in cfgs if keys(c)[2] in ('True', 'true') and keys(c)[:2] != enc]
+if bad:
+    print(f"ERROR: the encoder was trained with n_steps={enc[0]}, fields={enc[1]}, but these configs differ:")
+    for b in bad: print(f"         {b}: n_steps={keys(os.path.join(sys.argv[2], b))[0]}, fields={keys(os.path.join(sys.argv[2], b))[1]}")
+    print("       Its weights would not load. Point CL_ENC_DIR at a matching encoder.")
+    sys.exit(1)
+print(f"Encoder matches all {len(cfgs)} arm configs (n_steps={enc[0]}, fields={enc[1]})")
+PYCHECK
 
 echo "=== Phase 1: training array (tasks $ARMS) ==="
 # --parsable makes sbatch print only the job ID, so it can be captured for the dependency.

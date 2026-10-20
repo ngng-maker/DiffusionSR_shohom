@@ -169,7 +169,7 @@ if [ "$missing" -gt 0 ]; then
   #    copying it is what keeps ORCHARD results comparable with TRACE ones. Retraining instead
   #    gives a different encoder and the two clusters' numbers stop being comparable.
   ssh <orchard> "mkdir -p $CL_ENC_DIR"
-  rsync -avh --progress $TRACE_REPO/diffusionsr/runs/ablation_20260901/enc_temp/ \
+  rsync -avh --progress $TRACE_REPO/diffusionsr/runs/fno_ablation/enc_rrdb/ \
       <orchard>:$CL_ENC_DIR/
 EOF
   echo

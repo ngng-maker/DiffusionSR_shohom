@@ -28,8 +28,11 @@ case "$CLUSTER" in
     CL_EXTRA_SBATCH="${CL_EXTRA_SBATCH:-}"          # TRACE needs no --account or --qos
     CL_TRAIN_TIME="${CL_TRAIN_TIME:-2-00:00:00}"     # a full 300-epoch run takes ~12-14 h on an A40
     CL_WANDB_ENTITY="${CL_WANDB_ENTITY:-ngng-}"
-    # The frozen encoder both arms of the comparison condition on.
-    CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/ablation_20260901/enc_temp}"
+    # The frozen encoder both arms of the comparison condition on. It must match the configs'
+    # n_steps and fields: the interpolant configs use n_steps=1, temperature, so this is the 1-step
+    # RRDB temperature encoder. ablation_20260901/enc_temp was n_steps=3 (3 input channels) and
+    # failed every encoder arm with a conv1 size mismatch. submit_all.sh now checks this.
+    CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/fno_ablation/enc_rrdb}"
     ;;
 
   orchard)
@@ -59,7 +62,7 @@ case "$CLUSTER" in
     # A task that runs over requeues itself and resumes (see requeue_before_timeout in 01_train_array.sh).
     CL_TRAIN_TIME="${CL_TRAIN_TIME:-08:00:00}"
     CL_WANDB_ENTITY="${CL_WANDB_ENTITY:-ngng-}"
-    CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/ablation_20260901/enc_temp}"
+    CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/fno_ablation/enc_rrdb}"
     CLUSTER_PROFILE_CONFIRMED=1
 
     if [ "${CLUSTER_PROFILE_CONFIRMED:-0}" != "1" ]; then

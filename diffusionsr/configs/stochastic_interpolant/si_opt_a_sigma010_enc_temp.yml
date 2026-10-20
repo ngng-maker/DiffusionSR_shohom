@@ -18,7 +18,7 @@ p_flip: 0.2
 fields: "temperature"
 encoding: True
 conditioning: "implicit"
-encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/enc_temp"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"
 si_sigma: 0.1
 si_gamma_c: 0.0
 si_cond: "enc_implicit"

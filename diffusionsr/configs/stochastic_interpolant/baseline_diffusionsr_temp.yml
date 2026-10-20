@@ -15,4 +15,4 @@ loss_type: "l2"
 fields: "temperature"
 encoding: True
 conditioning: "implicit"
-encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/ablation_20260901/enc_temp"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"
