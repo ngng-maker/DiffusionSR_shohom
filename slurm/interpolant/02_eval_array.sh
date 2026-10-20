@@ -39,7 +39,14 @@ mkdir -p "$WANDB_CACHE_DIR"
 trap 'rm -rf ~/.local/share/wandb/artifacts/staging/ "$WANDB_CACHE_DIR"' EXIT
 
 # All cluster-specific values come from the profile, so this script is machine-agnostic.
-REPO_GUESS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Locate the repo from SLURM_SUBMIT_DIR, NOT from BASH_SOURCE: sbatch runs a COPY of this script
+# from /var/spool/slurmd/job<ID>/, so a path relative to the script resolves into the spool dir.
+# See the same block in 01_train_array.sh.
+REPO_GUESS="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+if [ ! -f "$REPO_GUESS/slurm/cluster_env.sh" ]; then
+  echo "ERROR: $REPO_GUESS/slurm/cluster_env.sh not found. Submit from the repo root."
+  exit 1
+fi
 source "$REPO_GUESS/slurm/cluster_env.sh"
 
 REPO="$CL_REPO"
