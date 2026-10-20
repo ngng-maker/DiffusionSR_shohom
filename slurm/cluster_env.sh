@@ -26,6 +26,7 @@ case "$CLUSTER" in
     CL_PARTITION="${CL_PARTITION:-batch}"
     CL_GRES="${CL_GRES:-gpu:a40:1}"
     CL_EXTRA_SBATCH="${CL_EXTRA_SBATCH:-}"          # TRACE needs no --account or --qos
+    CL_TRAIN_TIME="${CL_TRAIN_TIME:-2-00:00:00}"     # a full 300-epoch run takes ~12-14 h on an A40
     CL_WANDB_ENTITY="${CL_WANDB_ENTITY:-ngng-}"
     # The frozen encoder both arms of the comparison condition on.
     CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/ablation_20260901/enc_temp}"
@@ -52,6 +53,11 @@ case "$CLUSTER" in
     CL_PARTITION="${CL_PARTITION:-preempt}"
     CL_GRES="${CL_GRES:-gpu:1}"
     CL_EXTRA_SBATCH="${CL_EXTRA_SBATCH:---account=oogoke --qos=preempt_qos}"
+    # Per-segment training time limit. preempt is the lowest priority tier, so a 2-day request only
+    # starts when a GPU is free for 2 days; a short one can be backfilled into gaps. 300 epochs took
+    # ~12.5 h on a TRACE A40 (ddpm_base_temp, ~2.5 min/epoch), so ~5-8 h is expected on an H100.
+    # A task that runs over requeues itself and resumes (see requeue_before_timeout in 01_train_array.sh).
+    CL_TRAIN_TIME="${CL_TRAIN_TIME:-08:00:00}"
     CL_WANDB_ENTITY="${CL_WANDB_ENTITY:-ngng-}"
     CL_ENC_DIR="${CL_ENC_DIR:-$CL_REPO/diffusionsr/runs/ablation_20260901/enc_temp}"
     CLUSTER_PROFILE_CONFIRMED=1

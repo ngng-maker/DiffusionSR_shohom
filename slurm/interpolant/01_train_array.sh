@@ -13,6 +13,10 @@
 #SBATCH --output=logs/interpolant/train_%a_%j.log
 #SBATCH --error=logs/interpolant/train_%a_%j.err
 #SBATCH --requeue
+# Ask SLURM for SIGUSR1 to the batch shell 10 min before the time limit, so the job can requeue
+# itself instead of ending as TIMEOUT (which is NOT requeued and would block the eval array).
+# This is what makes a short --time safe: see requeue_before_timeout below.
+#SBATCH --signal=B:USR1@600
 #
 # Phase 1 -- train the DiffusionSR baseline and every stochastic-interpolant arm.
 #
@@ -126,6 +130,21 @@ mkdir -p "$RUNS/$NAME"
 if [ ! -f "$RUNS/$NAME/wandb_run_name.txt" ]; then
   echo "$WNAME" > "$RUNS/$NAME/wandb_run_name.txt"
 fi
+# A requeued segment that starts on a later day must keep the ORIGINAL name, not today's stamp.
+WNAME=$(cat "$RUNS/$NAME/wandb_run_name.txt")
+
+# Short-segment training: the time limit (CL_TRAIN_TIME in cluster_env.sh) can be far below a full
+# run, because both training loops write ckpt.pth every epoch and resume from it. On SIGUSR1 (sent
+# 10 min before the limit, per --signal above) the task requeues itself; the next segment resumes
+# from the last completed epoch in the same W&B run. At most one partial epoch is lost per segment.
+# Python runs in the background because bash defers traps until a foreground command returns.
+requeue_before_timeout() {
+  echo "=== $(date) time limit approaching: requeueing job $SLURM_JOB_ID to resume from ckpt.pth ==="
+  scontrol requeue "$SLURM_JOB_ID"
+  # Let SLURM end the job as REQUEUED rather than racing it to exit with a FAILED status.
+  sleep 300
+}
+trap requeue_before_timeout USR1
 
 python -m diffusionsr.runners.train_srdiff \
   --data_root         "$CL_DATA" \
@@ -135,6 +154,10 @@ python -m diffusionsr.runners.train_srdiff \
   --force_run_dir     "$RUNS/$NAME" \
   --wandb_run_name    "$WNAME" \
   --resume_from_wandb "$WNAME" \
-  $ENC_ARG
+  $ENC_ARG &
+PY_PID=$!
+# `wait` returns python's exit status (set -e then fails the task on a crash), or returns early
+# with >128 when the USR1 trap fires, by which point scontrol requeue is already ending this job.
+wait $PY_PID
 
 echo "=== $NAME complete ==="

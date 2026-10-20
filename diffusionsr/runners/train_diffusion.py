@@ -844,7 +844,9 @@ class DiffusionModel():
                 best_val_loss = test_mean_loss
             states = [self.model.state_dict(), self.optimizer.state_dict(), epoch, step, best_val_loss]
             ckpt_path = os.path.join(self.results_folder, "ckpt.pth")
-            torch.save(states, ckpt_path)
+            # Temp file + rename, so a job killed mid-write never leaves a truncated ckpt.pth.
+            torch.save(states, ckpt_path + '.tmp')
+            os.replace(ckpt_path + '.tmp', ckpt_path)
             if is_best:
                 torch.save(states, os.path.join(self.results_folder, "bestmodel_saved.pth"))
             _run_name = wandb.run.name if wandb.run is not None else "run"

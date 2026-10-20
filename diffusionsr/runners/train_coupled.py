@@ -386,7 +386,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
                 best_val_loss,
                 ema_model.state_dict(),   # save EMA weights alongside main weights
             ]
-            torch.save(states, ckpt_path)          # rolling checkpoint, every epoch, local disk
+            # rolling checkpoint, every epoch, local disk. Written to a temp file and renamed so a job
+            # killed mid-write (preemption, time-limit requeue) never leaves a truncated ckpt.pth.
+            torch.save(states, ckpt_path + '.tmp')
+            os.replace(ckpt_path + '.tmp', ckpt_path)
             if is_best:
                 torch.save(states, best_path)      # best-so-far, local disk
 

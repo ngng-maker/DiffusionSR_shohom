@@ -71,8 +71,11 @@ echo "Shared frozen encoder found: $ENC_DIR"
 
 echo "=== Phase 1: training array (tasks $ARMS) ==="
 # --parsable makes sbatch print only the job ID, so it can be captured for the dependency.
-TRAIN_JID=$(sbatch --parsable --array="$ARMS" $RESOURCE_ARG $EXPORT_ARG slurm/interpolant/01_train_array.sh)
-echo "  Training array job ID: $TRAIN_JID"
+# The training time limit is per cluster, and only applies to training: each segment requeues
+# itself before the limit and resumes from ckpt.pth, so it can be much shorter than a full run.
+TRAIN_JID=$(sbatch --parsable --array="$ARMS" --time="$CL_TRAIN_TIME" $RESOURCE_ARG $EXPORT_ARG \
+            slurm/interpolant/01_train_array.sh)
+echo "  Training array job ID: $TRAIN_JID  (time limit per segment: $CL_TRAIN_TIME)"
 
 echo "=== Phase 2: eval array (tasks $ARMS) -- depends on $TRAIN_JID ==="
 # afterok on an array job waits for EVERY task to succeed. A single failed arm therefore blocks the
