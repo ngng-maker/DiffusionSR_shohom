@@ -165,7 +165,7 @@ def main():
         # CoupledInterpolantModel.train() stores the EMA shadow weights at index 5. The SI arms are
         # evaluated from their EMA weights, so the baseline must be too or the comparison is unfair
         # in the baseline's disfavour.
-        from diffusionsr.utils import remove_module_prefix
+        from diffusionsr.runners.train_diffusion import remove_module_prefix  # not in diffusionsr.utils
         model.model.load_state_dict(remove_module_prefix(checkpoint[5]))
         print(f'Loaded EMA weights from {os.path.basename(load_path)}')
     else:

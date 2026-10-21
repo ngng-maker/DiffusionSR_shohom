@@ -158,6 +158,7 @@ else
       --run_name    "$NAME" \
       --model_dir   "$MODEL_DIR" \
       --config      "$CFGS/$CFG.yml" \
+      --data_root   "$DATA" \
       --sigma       "$SIGMA" \
       --gamma_c     "$GAMMA" \
       --si_cond     "$SICOND" \
