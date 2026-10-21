@@ -300,6 +300,11 @@ class CoupledInterpolantModel(FlowMatchingModel):
                     p = self.results_folder / fname
                     if p.exists():
                         attr += list(np.loadtxt(str(p)).reshape(-1))
+                    # The .txt files are written BEFORE ckpt.pth each epoch, so a preemption between
+                    # the two leaves a row for an epoch the checkpoint does not contain; that epoch is
+                    # then re-run and logged twice (seen as 301-row files on ORCHARD). Keep exactly the
+                    # epochs the checkpoint covers.
+                    del attr[start_epoch:]
                 print(f'Resumed from epoch {start_epoch}, global_step={global_step}')
 
         # ------------------------------------------------------------------

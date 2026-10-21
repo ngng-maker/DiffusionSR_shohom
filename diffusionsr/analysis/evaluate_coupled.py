@@ -59,16 +59,39 @@ def _px_um(factor: int) -> float:
     return PIXEL_SIZE_UM.get(f'{factor}x', 5.0)
 
 
-def _mp_profile(temp: np.ndarray, threshold: float = 1900.0) -> np.ndarray:
+def _mp_geometry(temp: np.ndarray, px_um: float, threshold: float = 1900.0) -> dict:
     """
-    Extract melt-pool depth profile as a function of x position.
-    temp: (H, W) physical temperature array.
-    Returns depth[x] = index of first pixel above threshold along z.
+    Melt-pool geometry of one (H, W) physical temperature field.
+
+    Orientation follows analysis_functions.get_profile: after temp.T the rows are z (the free surface
+    is at HIGH z, cold gas above it) and the columns are x. Gas, the keyhole cavity and the cold solid
+    are all at ambient, so per melted column the hot pixels run from the melt-pool bottom up to either
+    the free surface or, under a keyhole, the keyhole bottom.
+
+    get_profile pads columns WITHOUT melt with the column height, and the old metrics took max() and
+    len() over that padded profile -- so every depth was the padding value and every width the full
+    domain, for prediction and ground truth alike. MP/KH/depth/area MAE were always 0 and calibration
+    always 1. Only melted columns are used here.
+
+      surface   = highest hot pixel over all melted columns (the undisturbed melt surface)
+      mp_depth  = surface - deepest hot pixel + 1          (melt-pool depth, um)
+      kh_depth  = surface - lowest top-of-hot-region pixel (keyhole depression depth, um; 0 if flat)
+      area      = hot-pixel count * px_um^2                (um^2)
+    A frame with no melt has all four equal to 0.
     """
-    from diffusionsr.analysis.analysis_functions import get_profile
-    # get_profile expects (1, H, W); returns (mp_profile, kh_profile)
-    mp, kh = get_profile(temp[None])
-    return np.array(mp), np.array(kh)
+    hot = temp.T > threshold
+    cols = np.where(hot.any(axis=0))[0]
+    if len(cols) == 0:
+        return {'mp_depth': 0.0, 'kh_depth': 0.0, 'width': 0.0, 'area': 0.0}
+    bottoms = np.array([np.where(hot[:, c])[0].min() for c in cols])
+    tops = np.array([np.where(hot[:, c])[0].max() for c in cols])
+    surface = tops.max()
+    return {
+        'mp_depth': float(surface - bottoms.min() + 1) * px_um,
+        'kh_depth': float(surface - tops.min()) * px_um,
+        'width': float(len(cols)) * px_um,
+        'area': float(hot.sum()) * px_um ** 2,
+    }
 
 
 def _phys_metrics(pred_t: np.ndarray, gt_t: np.ndarray, px_um: float):
@@ -76,31 +99,78 @@ def _phys_metrics(pred_t: np.ndarray, gt_t: np.ndarray, px_um: float):
     Compute melt-pool metrics for a single (H, W) temperature field pair.
     Returns dict of scalars.
     """
-    mp_p, kh_p = _mp_profile(pred_t)
-    mp_g, kh_g = _mp_profile(gt_t)
-
-    # Depth (minimum depth of melt pool surface, i.e. deepest extent)
-    depth_p = float(np.max(mp_p) * px_um) if len(mp_p) > 0 else 0.0
-    depth_g = float(np.max(mp_g) * px_um) if len(mp_g) > 0 else 0.0
-
-    # Width (number of x-positions above threshold)
-    width_p = float(len(mp_p) * px_um)
-    width_g = float(len(mp_g) * px_um)
-
-    # Area (depth × width, µm²)
-    area_p = depth_p * width_p
-    area_g = depth_g * width_g
-
-    mp_mae = abs(depth_p - depth_g)   # µm
-    kh_depth_p = float(np.max(kh_p) * px_um) if len(kh_p) > 0 else 0.0
-    kh_depth_g = float(np.max(kh_g) * px_um) if len(kh_g) > 0 else 0.0
-    kh_mae = abs(kh_depth_p - kh_depth_g)
-
+    gp = _mp_geometry(pred_t, px_um)
+    gg = _mp_geometry(gt_t, px_um)
     return {
-        'mp_mae': mp_mae, 'kh_mae': kh_mae,
-        'depth_p': depth_p, 'depth_g': depth_g,
-        'area_p': area_p, 'area_g': area_g,
+        'mp_mae': abs(gp['mp_depth'] - gg['mp_depth']),   # um
+        'kh_mae': abs(gp['kh_depth'] - gg['kh_depth']),   # um
+        'depth_p': gp['mp_depth'], 'depth_g': gg['mp_depth'],
+        'area_p': gp['area'], 'area_g': gg['area'],
     }
+
+
+def compute_metrics(preds: np.ndarray, gts: np.ndarray, px_um: float,
+                    temp_field_idx: int = 0) -> dict:
+    """
+    All scalar metrics from physical-unit predictions (N, K, C, H, W) and ground truth (N, C, H, W).
+    Factored out of evaluate() so saved predictions (the W&B predictions.npz) can be re-scored with
+    exactly the code an eval run uses.
+    """
+    N, K, C, H, W = preds.shape
+    # ---- Per-sample metrics ----
+    maes, rmses, mp_maes, kh_maes = [], [], [], []
+    depths_p, depths_g, areas_p, areas_g = [], [], [], []
+
+    for n in range(N):
+        gt = gts[n]   # (C, H, W)
+        for k in range(K):
+            p = preds[n, k]
+            maes.append(float(np.abs(p - gt).mean()))
+            rmses.append(float(np.sqrt(np.mean((p - gt)**2))))
+            if C > 0:
+                m = _phys_metrics(p[temp_field_idx], gt[temp_field_idx], px_um)
+                mp_maes.append(m['mp_mae'])
+                kh_maes.append(m['kh_mae'])
+                depths_p.append(m['depth_p']); depths_g.append(m['depth_g'])
+                areas_p.append(m['area_p']);   areas_g.append(m['area_g'])
+
+    # Ensemble mean MAE
+    ens_mean = preds.mean(axis=1)   # (N, C, H, W)
+    ens_mae  = float(np.abs(ens_mean - gts).mean())
+
+    # Calibration: fraction of GT melt-pool depths inside the ensemble's mean ± 2*std, over frames whose
+    # GT HAS a melt pool. A no-melt frame that the ensemble also leaves unmelted has mu = sig = 0 and
+    # would count as "calibrated" trivially, inflating the score; such frames are excluded.
+    # depths_p / depths_g were filled n-major, k-minor above, so they reshape to (N, K).
+    n_melt_frames = 0
+    if depths_g:
+        dp = np.array(depths_p).reshape(N, K)
+        dg = np.array(depths_g).reshape(N, K)[:, 0]
+        melt = dg > 0
+        n_melt_frames = int(melt.sum())
+        if n_melt_frames:
+            mu, sig = dp[melt].mean(axis=1), dp[melt].std(axis=1)
+            calibration = float(np.mean(np.abs(dg[melt] - mu) <= 2 * sig))
+        else:
+            calibration = float('nan')
+    else:
+        calibration = float('nan')
+
+    results = {
+        'N': N, 'K': K,
+        'MAE_mean': float(np.mean(maes)), 'MAE_std': float(np.std(maes)),
+        'RMSE_mean': float(np.mean(rmses)),
+        'MAE_ensemble_mean': ens_mae,
+        'MP_MAE_mean': float(np.mean(mp_maes)) if mp_maes else float('nan'),
+        'KH_MAE_mean': float(np.mean(kh_maes)) if kh_maes else float('nan'),
+        'depth_mae_um': float(np.mean(np.abs(np.array(depths_p) - np.array(depths_g)))) if depths_p else float('nan'),
+        'area_mae_um2': float(np.mean(np.abs(np.array(areas_p)  - np.array(areas_g))))  if areas_p  else float('nan'),
+        'calibration_2sigma': calibration,
+        # MP/KH/depth/area MAE average over ALL frames, including no-melt ones (where an unmelted
+        # prediction scores 0); this count says how many frames actually carry a melt pool.
+        'n_melt_frames': n_melt_frames,
+    }
+    return results
 
 
 def evaluate(
@@ -177,55 +247,9 @@ def evaluate(
     ulrs  = np.concatenate(all_ulrs,  axis=0)
     N, K, C, H, W = preds.shape
 
-    # ---- Per-sample metrics ----
-    maes, rmses, mp_maes, kh_maes = [], [], [], []
-    depths_p, depths_g, areas_p, areas_g = [], [], [], []
-
-    for n in range(N):
-        gt = gts[n]   # (C, H, W)
-        for k in range(K):
-            p = preds[n, k]
-            maes.append(float(np.abs(p - gt).mean()))
-            rmses.append(float(np.sqrt(np.mean((p - gt)**2))))
-            if C > 0:
-                m = _phys_metrics(p[temp_field_idx], gt[temp_field_idx], px_um)
-                mp_maes.append(m['mp_mae'])
-                kh_maes.append(m['kh_mae'])
-                depths_p.append(m['depth_p']); depths_g.append(m['depth_g'])
-                areas_p.append(m['area_p']);   areas_g.append(m['area_g'])
-
-    # Ensemble mean MAE
+    results = compute_metrics(preds, gts, px_um, temp_field_idx)
     ens_mean = preds.mean(axis=1)   # (N, C, H, W)
-    ens_mae  = float(np.abs(ens_mean - gts).mean())
     ens_std  = preds.std(axis=1)    # (N, C, H, W) per-pixel ensemble std
-
-    # Calibration: fraction of GT keyhole depths inside mean ± 2*std
-    if depths_g:
-        # Recompute per-simulation: for each n, compare GT depth against ensemble mean ± 2 std
-        calib_list = []
-        for n in range(N):
-            gt_d = _phys_metrics(gts[n, temp_field_idx], gts[n, temp_field_idx], px_um)['depth_g']
-            ens_depths = [
-                _phys_metrics(preds[n, k, temp_field_idx], gts[n, temp_field_idx], px_um)['depth_p']
-                for k in range(K)
-            ]
-            mu = np.mean(ens_depths); sig = np.std(ens_depths)
-            calib_list.append(float(abs(gt_d - mu) <= 2 * sig))
-        calibration = float(np.mean(calib_list))
-    else:
-        calibration = float('nan')
-
-    results = {
-        'N': N, 'K': K,
-        'MAE_mean': float(np.mean(maes)), 'MAE_std': float(np.std(maes)),
-        'RMSE_mean': float(np.mean(rmses)),
-        'MAE_ensemble_mean': ens_mae,
-        'MP_MAE_mean': float(np.mean(mp_maes)) if mp_maes else float('nan'),
-        'KH_MAE_mean': float(np.mean(kh_maes)) if kh_maes else float('nan'),
-        'depth_mae_um': float(np.mean(np.abs(np.array(depths_p) - np.array(depths_g)))) if depths_p else float('nan'),
-        'area_mae_um2': float(np.mean(np.abs(np.array(areas_p)  - np.array(areas_g))))  if areas_p  else float('nan'),
-        'calibration_2sigma': calibration,
-    }
 
     # ---- Overlay figures at plot_frame_idx ----
     idx = min(plot_frame_idx, N - 1)

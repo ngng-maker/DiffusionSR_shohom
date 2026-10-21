@@ -59,7 +59,10 @@ def parse_args_and_config():
     return args, new_config, config_path
 
 args, new_config, config_path = parse_args_and_config()
-combined_dict = vars(args)
+# Copy first: vars(args) IS args.__dict__, so updating it in place overwrote any argument that shares a
+# name with a config key -- `--epochs` was silently replaced by the config's epochs. Every args.X read
+# below is a CLI argument, so nothing relied on that side effect.
+combined_dict = dict(vars(args))
 combined_dict.update(vars(new_config))
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu

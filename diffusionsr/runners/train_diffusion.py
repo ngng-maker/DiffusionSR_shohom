@@ -743,6 +743,11 @@ class DiffusionModel():
             _vlf = os.path.join(self.results_folder, self.save_prefix + "validation_loss_epoch.txt")
             if os.path.exists(_vlf):
                 all_test_losses = list(np.loadtxt(_vlf).reshape(-1))
+            # The .txt files are written before ckpt.pth, so a preemption between the two leaves a row
+            # for an epoch the checkpoint lacks, which is then re-run and logged twice. Keep exactly
+            # the epochs the checkpoint covers.
+            all_train_losses = all_train_losses[:self.start_epoch]
+            all_test_losses = all_test_losses[:self.start_epoch]
 
         _train_t0 = time.time()
         for epoch in tqdm(range(self.start_epoch, self.epochs)):
