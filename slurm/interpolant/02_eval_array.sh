@@ -150,10 +150,16 @@ else
     ARM_EPS0=0.0
   fi
 
+  # Deterministic runs (eps0=0, the default) use Heun for every arm, so Option A and Option B share
+  # one integrator and step budget (HeunSampler takes b_hat from Option B's dual head). Only the EM
+  # sampler uses eps0, so a stochastic run must switch to it -- with `heun` hardcoded, an eps0 sweep
+  # was silently deterministic.
+  if [ "$ARM_EPS0" = "0.0" ]; then SAMPLER=heun; else SAMPLER=em; fi
+
   ENC_ARG=""
   if [ "$NEEDS_ENC" = "True" ]; then ENC_ARG="--enc_dir $ENC_DIR"; fi
 
-  echo "    sigma=$SIGMA gamma_c=$GAMMA si_cond=$SICOND eps0=$ARM_EPS0 n_steps=$N_STEPS K=$K_SAMPLES"
+  echo "    sigma=$SIGMA gamma_c=$GAMMA si_cond=$SICOND sampler=$SAMPLER eps0=$ARM_EPS0 n_steps=$N_STEPS K=$K_SAMPLES"
   python -m diffusionsr.analysis.evaluate_coupled \
       --run_name    "$NAME" \
       --model_dir   "$MODEL_DIR" \
@@ -162,7 +168,7 @@ else
       --sigma       "$SIGMA" \
       --gamma_c     "$GAMMA" \
       --si_cond     "$SICOND" \
-      --sampler     heun \
+      --sampler     "$SAMPLER" \
       --n_steps     "$N_STEPS" \
       --eps0        "$ARM_EPS0" \
       --k_samples   "$K_SAMPLES" \

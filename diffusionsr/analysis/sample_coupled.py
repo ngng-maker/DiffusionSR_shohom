@@ -73,7 +73,14 @@ class HeunSampler:
         B = x.shape[0]
         device = x.device
         t_batch = torch.full((B,), t_scalar * self.fm_timescale, device=device)
-        return model(x, t_batch, x_e)
+        out = model(x, t_batch, x_e)
+        # Option B (gamma_c > 0) models are dual-head: 2*C channels, b_hat first and g_hat last
+        # (see EMSampler._query). The ODE needs only b_hat. Returning all 2*C channels fed them back
+        # into the next step and crashed the Option B evals ("expected 1 channels, got 2").
+        C = x.shape[1]
+        if out.shape[1] == 2 * C:
+            out = out[:, :C]
+        return out
 
     @torch.no_grad()
     def sample(
