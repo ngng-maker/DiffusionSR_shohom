@@ -60,7 +60,15 @@ case "$CLUSTER" in
     # W&B stages every checkpoint artifact (~400 MB) under ~/.local/share/wandb before uploading;
     # with 12 tasks at once that alone can exhaust the home quota. One dir per job, so the EXIT trap
     # in the job scripts clears only its own staging, not uploads still in flight in other tasks.
-    export WANDB_DATA_DIR="${WANDB_DATA_DIR:-$CL_PROJECT/.wandb_data/${SLURM_JOB_ID:-login}}"
+    # Inside a job this deliberately IGNORES an inherited value: submit_all.sh sources this file on
+    # the login node, which sets .../login, and sbatch --export=ALL then copied that into every job,
+    # so all tasks shared one staging dir. A task's cleanup then hit "Directory not empty" while
+    # another was still uploading, and the task ended FAILED despite a successful eval.
+    if [ -n "${SLURM_JOB_ID:-}" ]; then
+      export WANDB_DATA_DIR="$CL_PROJECT/.wandb_data/$SLURM_JOB_ID"
+    else
+      export WANDB_DATA_DIR="${WANDB_DATA_DIR:-$CL_PROJECT/.wandb_data/login}"
+    fi
     CL_CONDA_SH="${CL_CONDA_SH:-$HOME/miniforge3/etc/profile.d/conda.sh}"
     CL_CONDA_ENV="${CL_CONDA_ENV:-$HOME/envs/diffusion_SR}"
     CL_PARTITION="${CL_PARTITION:-preempt}"
