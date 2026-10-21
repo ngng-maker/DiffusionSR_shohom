@@ -144,7 +144,9 @@ def evaluate(
                     sampler=sampler, n_steps=n_steps,
                     upscaled_lr=ulr, eps0=eps0,
                 )
-                pred_norm = imgs[-1]   # (B, C, H, W) normalized
+                # (B, C, H, W) normalized. .cpu(): the SI samplers return host tensors, but the DDPM
+                # baseline's DDIM sampler (evaluate_baseline_matched) returns them on the GPU.
+                pred_norm = imgs[-1].detach().cpu()
                 pred_phys = np.stack([
                     test_ds.unscale_data(pred_norm[s].numpy(), input_type='hr')
                     for s in range(pred_norm.shape[0])
