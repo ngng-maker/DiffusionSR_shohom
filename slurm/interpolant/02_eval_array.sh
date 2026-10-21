@@ -9,7 +9,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-11
+#SBATCH --array=0-12
 #SBATCH --output=logs/interpolant/eval_%a_%j.log
 #SBATCH --error=logs/interpolant/eval_%a_%j.err
 #SBATCH --requeue
@@ -88,7 +88,8 @@ CONFIGS=(baseline_ddpm_matched_temp \
          si_opt_b_c010_enc_temp     si_opt_b_c025_enc_temp \
          si_opt_a_sigma005_ulr_temp si_opt_a_sigma010_ulr_temp si_opt_a_sigma020_ulr_temp \
          si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp \
-         baseline_diffusionsr_temp)
+         baseline_diffusionsr_temp \
+         si_opt_a_sigma010_encbase_temp)
 
 CFG=${CONFIGS[$TASK]}
 NAME="si_${CFG}"
@@ -140,6 +141,8 @@ else
   SIGMA=$(python -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))['si_sigma'])"    "$CFGS/$CFG.yml")
   GAMMA=$(python -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))['si_gamma_c'])"  "$CFGS/$CFG.yml")
   SICOND=$(python -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))['si_cond'])"    "$CFGS/$CFG.yml")
+  # Start of the transport; absent in every config before task 12, which means the bicubic base.
+  SIBASE=$(python -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1])).get('si_base', 'ulr'))" "$CFGS/$CFG.yml")
   NEEDS_ENC=$(python -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1])).get('encoding', False))" "$CFGS/$CFG.yml")
 
   # Option A (gamma_c = 0) has no path noise and therefore no score, so it is ODE-only: eps0 must
@@ -159,7 +162,7 @@ else
   ENC_ARG=""
   if [ "$NEEDS_ENC" = "True" ]; then ENC_ARG="--enc_dir $ENC_DIR"; fi
 
-  echo "    sigma=$SIGMA gamma_c=$GAMMA si_cond=$SICOND sampler=$SAMPLER eps0=$ARM_EPS0 n_steps=$N_STEPS K=$K_SAMPLES"
+  echo "    sigma=$SIGMA gamma_c=$GAMMA si_cond=$SICOND si_base=$SIBASE sampler=$SAMPLER eps0=$ARM_EPS0 n_steps=$N_STEPS K=$K_SAMPLES"
   python -m diffusionsr.analysis.evaluate_coupled \
       --run_name    "$NAME" \
       --model_dir   "$MODEL_DIR" \
@@ -168,6 +171,7 @@ else
       --sigma       "$SIGMA" \
       --gamma_c     "$GAMMA" \
       --si_cond     "$SICOND" \
+      --si_base     "$SIBASE" \
       --sampler     "$SAMPLER" \
       --n_steps     "$N_STEPS" \
       --eps0        "$ARM_EPS0" \

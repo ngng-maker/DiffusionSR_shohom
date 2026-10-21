@@ -66,6 +66,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
     gamma_c   : float — Option-A: 0.0 (default).  Option-B: 0.1 or 0.25.
     si_cond   : str   — 'ulr_concat'  (concat upscaled_lr as conditioning channel, primary)
                        'enc_implicit' (frozen RRDB encoder features, ablation).
+    si_base   : str   — what x0 is centred on (the start of the transport):
+                       'ulr' (default) the bicubic-upscaled LR, re-normalized to HR stats;
+                       'enc' the frozen encoder's own HR prediction enc(LR), i.e. the coupling of
+                             INTERPOLANT_PLAN.md level 2 / hypothesis I2. Requires encoding=True.
     ema_decay : float — EMA weight decay (0.999).
     grad_clip : float — gradient norm clip threshold (1.0).
     """
@@ -76,11 +80,15 @@ class CoupledInterpolantModel(FlowMatchingModel):
         sigma: float = 0.1,
         gamma_c: float = 0.0,
         si_cond: str = 'ulr_concat',
+        si_base: str = 'ulr',
         ema_decay: float = 0.999,
         grad_clip: float = 1.0,
         fm_timescale: float = 1000.0,
         **kwargs,
     ):
+        if si_base not in ('ulr', 'enc'):
+            raise ValueError(f"si_base must be 'ulr' or 'enc', got {si_base!r}")
+        self.si_base = si_base
         # For 'ulr_concat', the U-Net input is [x_t; ulr_in_hr] = 2*C channels.
         # We double channels before the parent builds the U-Net.
         self._si_cond = si_cond
@@ -93,6 +101,10 @@ class CoupledInterpolantModel(FlowMatchingModel):
             kwargs.setdefault('conditioning', 'explicit')
 
         super().__init__(*args, fm_timescale=fm_timescale, **kwargs)
+
+        if self.si_base == 'enc' and not self.encoding:
+            raise ValueError("si_base='enc' starts the transport at the encoder's prediction, so it "
+                             "needs encoding=True (a frozen encoder) in the config.")
 
         self.sigma = sigma
         self.gamma_c = gamma_c
@@ -146,6 +158,23 @@ class CoupledInterpolantModel(FlowMatchingModel):
         mu_h = self._mean_hr.to(dev)
         sd_h = self._std_hr.to(dev)
         return ulr_to_hr_space(upscaled_lr, mu_u, sd_u, mu_h, sd_h)
+
+    @torch.no_grad()
+    def base_hr(self, true_lr: torch.Tensor, upscaled_lr: torch.Tensor) -> torch.Tensor:
+        """
+        Mean of the base x0 = base + sigma*zeta, in HR-stat space (the space of the target x1).
+
+        'ulr': the bicubic-upscaled LR re-normalized from its own stats to HR stats.
+        'enc': the frozen encoder's final HR prediction. The encoder was pretrained with an L1 loss
+               from the dataset-normalized LR to the dataset-normalized HR, so its output is already
+               in HR-stat space and needs no re-normalization. No gradient flows into the encoder.
+        """
+        if self.si_base == 'enc':
+            return forwardpass(self.lr_enc, true_lr.to(self.device).float(),
+                               factor=self.train_dataset.factor, output=True,
+                               transform_rescale=self.transform_rescale,
+                               dataset=self.train_dataset)
+        return self.ulr_to_hr(upscaled_lr.to(self.device).float())
 
     # ------------------------------------------------------------------
     # Conditioning tensor
@@ -289,7 +318,7 @@ class CoupledInterpolantModel(FlowMatchingModel):
             )
         else:
             cfg = dict(
-                sigma=self.sigma, gamma_c=self.gamma_c, si_cond=self._si_cond,
+                sigma=self.sigma, gamma_c=self.gamma_c, si_cond=self._si_cond, si_base=self.si_base,
                 ema_decay=self.ema_decay, grad_clip=self.grad_clip,
                 fm_timescale=self.fm_timescale, epochs=epochs,
                 batch_size=batch_size, learning_rate=learning_rate,
@@ -327,8 +356,8 @@ class CoupledInterpolantModel(FlowMatchingModel):
                 lr  = lr.to(self.device).float()
                 ulr = ulr.to(self.device).float()
 
-                # Conditioning and x0 source
-                ulr_hr = self.ulr_to_hr(ulr)
+                # Conditioning and x0 source (bicubic or encoder prediction, per si_base)
+                ulr_hr = self.base_hr(lr, ulr)
                 x_e = self.compute_x_e(lr, ulr)
 
                 self.optimizer.zero_grad()
@@ -361,7 +390,7 @@ class CoupledInterpolantModel(FlowMatchingModel):
                     hr  = hr.to(self.device).float()
                     lr  = lr.to(self.device).float()
                     ulr = ulr.to(self.device).float()
-                    ulr_hr = self.ulr_to_hr(ulr)
+                    ulr_hr = self.base_hr(lr, ulr)
                     x_e    = self.compute_x_e(lr, ulr)
                     val_losses.append(self._si_forward(hr, ulr_hr, x_e, loss_type).item())
 
@@ -444,31 +473,34 @@ class CoupledInterpolantModel(FlowMatchingModel):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def _make_x0_batch(self, upscaled_lr: torch.Tensor) -> torch.Tensor:
-        """Build x0 = ulr_in_hr_space + sigma * zeta for a batch."""
-        ulr = upscaled_lr.to(self.device).float()
-        ulr_hr = self.ulr_to_hr(ulr)
-        return make_x0(ulr_hr, self.sigma)
+    def _make_x0_batch(self, upscaled_lr: torch.Tensor,
+                       true_lr: torch.Tensor | None = None) -> torch.Tensor:
+        """Build x0 = base + sigma * zeta for a batch, with the base chosen by si_base."""
+        if self.si_base == 'enc' and true_lr is None:
+            raise ValueError("si_base='enc' samples from the encoder's prediction, so the true LR "
+                             "must be passed (batch_sample(..., lr=lr)).")
+        return make_x0(self.base_hr(true_lr, upscaled_lr), self.sigma)
 
     @torch.no_grad()
     def heun_sample(self, upscaled_lr: torch.Tensor, x_e: torch.Tensor | None,
-                    n_steps: int = 20) -> list[torch.Tensor]:
-        x0 = self._make_x0_batch(upscaled_lr)
+                    n_steps: int = 20, true_lr: torch.Tensor | None = None) -> list[torch.Tensor]:
+        x0 = self._make_x0_batch(upscaled_lr, true_lr)
         return self._heun_sampler.sample(self.model, x0, x_e, n_steps=n_steps)
 
     @torch.no_grad()
-    def dopri5_sample(self, upscaled_lr: torch.Tensor,
-                      x_e: torch.Tensor | None) -> list[torch.Tensor]:
-        x0 = self._make_x0_batch(upscaled_lr)
+    def dopri5_sample(self, upscaled_lr: torch.Tensor, x_e: torch.Tensor | None,
+                      true_lr: torch.Tensor | None = None) -> list[torch.Tensor]:
+        x0 = self._make_x0_batch(upscaled_lr, true_lr)
         return self._dop_sampler.sample(self.model, x0, x_e)
 
     @torch.no_grad()
     def em_sample(self, upscaled_lr: torch.Tensor, x_e: torch.Tensor | None,
-                  n_steps: int = 100, eps0: float = 0.25) -> list[torch.Tensor]:
+                  n_steps: int = 100, eps0: float = 0.25,
+                  true_lr: torch.Tensor | None = None) -> list[torch.Tensor]:
         """Euler-Maruyama SDE sampler (Option B). eps0=0 gives the deterministic ODE."""
         if self.gamma_c == 0.0:
             raise ValueError('em_sample is for Option B (gamma_c > 0); use heun_sample for Option A.')
-        x0 = self._make_x0_batch(upscaled_lr)
+        x0 = self._make_x0_batch(upscaled_lr, true_lr)
         return self._em_sampler.sample(self.model, x0, x_e, n_steps=n_steps, eps0=eps0)
 
     def batch_sample(
@@ -480,6 +512,7 @@ class CoupledInterpolantModel(FlowMatchingModel):
         n_steps: int = 20,
         upscaled_lr: torch.Tensor | None = None,
         eps0: float = 0.0,
+        lr: torch.Tensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
         """
@@ -488,6 +521,7 @@ class CoupledInterpolantModel(FlowMatchingModel):
         upscaled_lr must be provided (it is the source distribution for SI sampling).
         If None, a zero tensor is used as a fallback (pure noise mode), which degrades
         the method to vanilla flow matching.
+        lr (the true LR) is required when si_base='enc', whose base is the encoder's prediction.
         """
         if upscaled_lr is None:
             # Fallback: no upscaled_lr available — treat as zero-mean source
@@ -498,11 +532,11 @@ class CoupledInterpolantModel(FlowMatchingModel):
             ulr = upscaled_lr
 
         if sampler == 'heun':
-            imgs = self.heun_sample(ulr, x_e, n_steps=n_steps)
+            imgs = self.heun_sample(ulr, x_e, n_steps=n_steps, true_lr=lr)
         elif sampler == 'dopri5':
-            imgs = self.dopri5_sample(ulr, x_e)
+            imgs = self.dopri5_sample(ulr, x_e, true_lr=lr)
         elif sampler == 'em':
-            imgs = self.em_sample(ulr, x_e, n_steps=n_steps, eps0=eps0)
+            imgs = self.em_sample(ulr, x_e, n_steps=n_steps, eps0=eps0, true_lr=lr)
         else:
             raise NotImplementedError(f'Unknown sampler={sampler!r}')
 

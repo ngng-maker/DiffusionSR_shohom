@@ -1,0 +1,35 @@
+# SI Option A  sigma=0.10  enc_implicit  ENCODER BASE  temp
+#
+# DiffusionSR with the diffusion model replaced by a stochastic interpolant, keeping only the CNN
+# encoder: the transport STARTS at the frozen encoder's own HR prediction,
+#     x0 = enc(LR) + sigma*zeta          (INTERPOLANT_PLAN.md level 2 / hypothesis I2)
+# instead of at the bicubic upscale, x0 = U(x_lf) + sigma*zeta, which every other SI arm uses.
+#
+# Derived from si_opt_a_sigma010_enc_temp.yml (task 2) by adding ONE key, si_base. Encoder,
+# conditioning (the same 64-channel encoder features), dataset, harness and every hyperparameter are
+# identical, so task 12 vs task 2 isolates the choice of base: does starting at the encoder's
+# prediction beat starting at bicubic?
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+residual_flag: false
+normalize_method: "standardize"
+schedule: "linear"
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 2e-4
+use_pretrained: False
+loss_type: "l2"
+fm_timescale: 1000.0
+ema_decay: 0.999
+grad_clip: 1.0
+p_flip: 0.2
+fields: "temperature"
+encoding: True
+conditioning: "implicit"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"
+si_sigma: 0.1
+si_gamma_c: 0.0
+si_cond: "enc_implicit"
+si_base: "enc"

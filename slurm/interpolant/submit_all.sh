@@ -48,9 +48,9 @@ mkdir -p logs/interpolant
 RESOURCE_ARG="--partition=$CL_PARTITION --gres=$CL_GRES $CL_EXTRA_SBATCH"
 echo "cluster=$CLUSTER  partition=$CL_PARTITION  gres=$CL_GRES  ${CL_EXTRA_SBATCH:-(no extra flags)}"
 
-# ARMS selects which array indices to run. Default is all 11; "0-5" gives just the attributable
+# ARMS selects which array indices to run. Default is all 13 (0-12); "0-5" gives just the attributable
 # comparison, which is the cheaper and more informative first pass.
-ARMS="${ARMS:-0-11}"
+ARMS="${ARMS:-0-12}"
 
 # CLUSTER must reach the compute node so the array scripts resolve the same profile.
 EXPORT_ARG="--export=ALL,CLUSTER=$CLUSTER"
@@ -126,6 +126,7 @@ echo "   4  si_opt_b_c010_enc_temp        SI-B c=0.10        (adds path noise + 
 echo "   5  si_opt_b_c025_enc_temp        SI-B c=0.25        (adds path noise + score head)"
 echo "   6-10  the five _ulr_temp twins   no encoder, ulr_concat conditioning"
 echo "  11  baseline_diffusionsr_temp     as-published DiffusionSR (plain loop, reference only)"
+echo "  12  si_opt_a_sigma010_encbase_temp  SI-A sigma=0.10 from enc(LR)  (vs task 2: the base alone)"
 echo ""
 echo "THE MINIMAL EXPERIMENT is tasks 0 and 2. Identical encoder, conditioning, dataset, harness"
 echo "(EMA + grad clip + StepLR + FlippedDataset) and hyperparameters; the configs differ in ONE"

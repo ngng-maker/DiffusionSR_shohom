@@ -492,6 +492,9 @@ if modeltype == 'coupled':
     si_sigma     = float(getattr(new_config, 'si_sigma',     0.1))
     si_gamma_c   = float(getattr(new_config, 'si_gamma_c',   0.0))
     si_cond      = str(  getattr(new_config, 'si_cond',      'ulr_concat'))
+    # 'ulr' starts the transport at the bicubic upscale (every arm before si_base existed);
+    # 'enc' starts it at the frozen encoder's own HR prediction.
+    si_base      = str(  getattr(new_config, 'si_base',      'ulr'))
     fm_timescale = float(getattr(new_config, 'fm_timescale', 1000.0))
     # How often the checkpoints are mirrored to W&B. Small enough that a TRACE preemption costs at
     # most this many epochs; large enough that the run's Files tab is not rewritten every epoch.
@@ -526,6 +529,8 @@ if modeltype == 'coupled':
     else:
         _proc_tag = 'ddpm' if si_process == 'ddpm' else 'si'
         si_tag = f'{_proc_tag}_s{int(si_sigma*100):03d}_g{int(si_gamma_c*100):03d}_{si_cond}'
+        if si_base != 'ulr':
+            si_tag += f'_base{si_base}'
         si_results_dir = os.path.join(
             'runs', downscale_method, si_tag,
             datetime_string, normalize_method, f'n_steps_{n_steps}')
@@ -553,6 +558,7 @@ if modeltype == 'coupled':
         sigma=si_sigma,
         gamma_c=si_gamma_c,
         si_cond=si_cond,
+        si_base=si_base,
         fm_timescale=fm_timescale,
         ema_decay=ema_decay,
         grad_clip=grad_clip,

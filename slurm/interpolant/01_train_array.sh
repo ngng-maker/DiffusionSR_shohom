@@ -9,7 +9,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-11
+#SBATCH --array=0-12
 #SBATCH --output=logs/interpolant/train_%a_%j.log
 #SBATCH --error=logs/interpolant/train_%a_%j.err
 #SBATCH --requeue
@@ -32,19 +32,25 @@
 # interpretable against each other. They are the paper's own setup (Albergo et al. use bicubic with
 # no encoder), kept as the secondary axis.
 #
-#   task  config                           encoder   conditioning    interpolant
-#   ----  -------------------------------  --------  --------------  ---------------------
-#    0    baseline_diffusionsr_temp        enc_temp  implicit 64ch   DDPM (the baseline)
-#    1    si_opt_a_sigma005_enc_temp       enc_temp  implicit 64ch   A, sigma=0.05
-#    2    si_opt_a_sigma010_enc_temp       enc_temp  implicit 64ch   A, sigma=0.10
-#    3    si_opt_a_sigma020_enc_temp       enc_temp  implicit 64ch   A, sigma=0.20
-#    4    si_opt_b_c010_enc_temp           enc_temp  implicit 64ch   B, c=0.10
-#    5    si_opt_b_c025_enc_temp           enc_temp  implicit 64ch   B, c=0.25
-#    6    si_opt_a_sigma005_ulr_temp       none      ulr_concat      A, sigma=0.05
-#    7    si_opt_a_sigma010_ulr_temp       none      ulr_concat      A, sigma=0.10
-#    8    si_opt_a_sigma020_ulr_temp       none      ulr_concat      A, sigma=0.20
-#    9    si_opt_b_c010_ulr_temp           none      ulr_concat      B, c=0.10
-#   10    si_opt_b_c025_ulr_temp           none      ulr_concat      B, c=0.25
+#   task  config                           encoder   conditioning    x0 base   process
+#   ----  -------------------------------  --------  --------------  --------  ------------------
+#    0    baseline_ddpm_matched_temp       enc_rrdb  implicit 64ch   noise     DDPM (the baseline)
+#    1    si_opt_a_sigma005_enc_temp       enc_rrdb  implicit 64ch   bicubic   A, sigma=0.05
+#    2    si_opt_a_sigma010_enc_temp       enc_rrdb  implicit 64ch   bicubic   A, sigma=0.10
+#    3    si_opt_a_sigma020_enc_temp       enc_rrdb  implicit 64ch   bicubic   A, sigma=0.20
+#    4    si_opt_b_c010_enc_temp           enc_rrdb  implicit 64ch   bicubic   B, c=0.10
+#    5    si_opt_b_c025_enc_temp           enc_rrdb  implicit 64ch   bicubic   B, c=0.25
+#    6    si_opt_a_sigma005_ulr_temp       none      ulr_concat      bicubic   A, sigma=0.05
+#    7    si_opt_a_sigma010_ulr_temp       none      ulr_concat      bicubic   A, sigma=0.10
+#    8    si_opt_a_sigma020_ulr_temp       none      ulr_concat      bicubic   A, sigma=0.20
+#    9    si_opt_b_c010_ulr_temp           none      ulr_concat      bicubic   B, c=0.10
+#   10    si_opt_b_c025_ulr_temp           none      ulr_concat      bicubic   B, c=0.25
+#   11    baseline_diffusionsr_temp        enc_rrdb  implicit 64ch   noise     DDPM, plain loop
+#   12    si_opt_a_sigma010_encbase_temp   enc_rrdb  implicit 64ch   enc(LR)   A, sigma=0.10
+#
+# Task 12 is task 2 with the transport starting at the encoder's own HR prediction instead of the
+# bicubic upscale (si_base: "enc"), i.e. DiffusionSR with the diffusion model replaced outright and
+# only the CNN encoder kept. Task 12 vs task 2 isolates the base.
 #
 # The enc arms come first deliberately: running only --array=0-5 gives the clean comparison.
 #
@@ -89,7 +95,8 @@ CONFIGS=(baseline_ddpm_matched_temp \
          si_opt_b_c010_enc_temp     si_opt_b_c025_enc_temp \
          si_opt_a_sigma005_ulr_temp si_opt_a_sigma010_ulr_temp si_opt_a_sigma020_ulr_temp \
          si_opt_b_c010_ulr_temp     si_opt_b_c025_ulr_temp \
-         baseline_diffusionsr_temp)
+         baseline_diffusionsr_temp \
+         si_opt_a_sigma010_encbase_temp)
 
 CFG=${CONFIGS[$TASK]}
 # Task 11 is the AS-PUBLISHED DiffusionSR and must use the plain DiffusionModel loop (no EMA, no

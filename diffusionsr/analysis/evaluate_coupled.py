@@ -143,6 +143,7 @@ def evaluate(
                     dataset=test_ds, batch=hr, x_e=x_e,
                     sampler=sampler, n_steps=n_steps,
                     upscaled_lr=ulr, eps0=eps0,
+                    lr=lr,  # used only when si_base='enc'; the DDPM baselines take it via **kwargs
                 )
                 # (B, C, H, W) normalized. .cpu(): the SI samplers return host tensors, but the DDPM
                 # baseline's DDIM sampler (evaluate_baseline_matched) returns them on the GPU.
@@ -279,6 +280,9 @@ def main():
     ap.add_argument('--gamma_c',        type=float, default=0.0)
     ap.add_argument('--si_cond',        default='ulr_concat',
                     choices=['ulr_concat', 'enc_implicit'])
+    ap.add_argument('--si_base',        default='ulr', choices=['ulr', 'enc'],
+                    help="start of the transport: bicubic upscale ('ulr') or the encoder's "
+                         "prediction ('enc'). Must match training.")
     ap.add_argument('--fm_timescale',   type=float, default=1000.0)
     ap.add_argument('--plot_frame_idx', type=int, default=70)
     ap.add_argument('--out_dir',        required=True)
@@ -335,7 +339,7 @@ def main():
         lr_encoder_folder=args.enc_dir,
         train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
         encoding=encoding, sigma=args.sigma, gamma_c=args.gamma_c,
-        si_cond=args.si_cond, fm_timescale=args.fm_timescale,
+        si_cond=args.si_cond, si_base=args.si_base, fm_timescale=args.fm_timescale,
         image_size_override=_unet_dim,
         enc_output=False,  # SI training uses enc_output=False (init_dim=None → Unet default 64)
         device=device,
