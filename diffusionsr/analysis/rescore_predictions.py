@@ -68,12 +68,22 @@ def main():
         a for a in os.listdir(args.results_root)
         if os.path.exists(os.path.join(args.results_root, a, f'{a}_results.json')))
     keys = ('MP_MAE_mean', 'KH_MAE_mean', 'depth_mae_um', 'area_mae_um2', 'calibration_2sigma')
+    skipped = []
     for a in arms:
-        r = rescore(os.path.join(args.results_root, a), args.wandb_entity, args.wandb_project,
-                    args.factor)
+        try:
+            r = rescore(os.path.join(args.results_root, a), args.wandb_entity, args.wandb_project,
+                        args.factor)
+        except wandb.errors.CommError as e:
+            # No committed :latest version -- e.g. an upload that never finished. Those predictions
+            # are gone; the arm has to be re-evaluated instead.
+            print(f"{a}: SKIPPED, no committed predictions artifact ({str(e).splitlines()[0][:90]})")
+            skipped.append(a)
+            continue
         print(f"{a}: MAE reproduced ({r['new']['MAE_mean']:.2f}); melt frames {r['new']['n_melt_frames']}")
         for k in keys:
             print(f"    {k:20s} {r['old'].get(k)!s:>10} -> {r['new'][k]:.4g}")
+    if skipped:
+        print(f"\nNOT rescored (re-run their eval): {' '.join(skipped)}")
 
 
 if __name__ == '__main__':
