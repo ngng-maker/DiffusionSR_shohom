@@ -215,7 +215,10 @@ class DiffusionModel():
             # breakpoint()
         if os.path.exists(os.path.join(self.results_folder, 'ckpt.pth')):
             print("model found, loading")
-            checkpoint = torch.load(os.path.join(self.results_folder, 'ckpt.pth'), map_location=self.device)
+            # weights_only=False: this loop's own checkpoint stores best_val_loss as a numpy scalar,
+            # which torch>=2.6's weights_only=True default refuses to unpickle.
+            checkpoint = torch.load(os.path.join(self.results_folder, 'ckpt.pth'), map_location=self.device,
+                                    weights_only=False)
             self.model.load_state_dict(checkpoint[0])
             self.optimizer = Adam(self.model.parameters())
             self.optimizer.load_state_dict(checkpoint[1])
@@ -704,7 +707,10 @@ class DiffusionModel():
         self.epochs = epochs
         if restart:
             print("Resuming training...")
-            checkpoint = torch.load(os.path.join(self.restart_dir, 'ckpt.pth'), map_location=self.device)
+            # weights_only=False: best_val_loss is a numpy scalar, refused by torch>=2.6's default.
+            # Without it every requeue of this loop fails at restart (seen on ORCHARD, torch 2.6).
+            checkpoint = torch.load(os.path.join(self.restart_dir, 'ckpt.pth'), map_location=self.device,
+                                    weights_only=False)
             state_dict = remove_module_prefix(checkpoint[0])
             try:
                 self.model.load_state_dict(checkpoint[0])

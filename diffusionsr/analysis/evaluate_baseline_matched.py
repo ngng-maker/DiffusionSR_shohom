@@ -128,7 +128,9 @@ def main():
     load_path = best_path if os.path.exists(best_path) else ckpt_path
     if not os.path.exists(load_path):
         raise FileNotFoundError(f'no checkpoint found in {args.model_dir} (looked for bestmodel_saved.pth and ckpt.pth)')
-    peek = torch.load(load_path, map_location='cpu')
+    # weights_only=False: plain-DiffusionModel checkpoints hold a numpy scalar (best_val_loss) that
+    # torch>=2.6's weights_only=True default refuses. These are this repo's own checkpoints.
+    peek = torch.load(load_path, map_location='cpu', weights_only=False)
     # time_mlp.1 is Linear(dim, 4*dim), so shape[1] is the true dim. init_conv.weight.shape[0] is
     # init_dim (which defaults to 64) and would give the wrong answer.
     unet_dim = int(peek[0]['time_mlp.1.weight'].shape[1])
@@ -158,7 +160,7 @@ def main():
         from diffusionsr.runners.train_diffusion import DiffusionModel
         model = DiffusionModel(**common)
 
-    checkpoint = torch.load(load_path, map_location=device)
+    checkpoint = torch.load(load_path, map_location=device, weights_only=False)
     if args.harness == 'coupled' and args.use_ema and len(checkpoint) > 5 and checkpoint[5] is not None:
         # CoupledInterpolantModel.train() stores the EMA shadow weights at index 5. The SI arms are
         # evaluated from their EMA weights, so the baseline must be too or the comparison is unfair
