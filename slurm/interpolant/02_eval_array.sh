@@ -57,6 +57,18 @@ ENC_DIR="$CL_ENC_DIR"
 OUT="$CL_EVAL_OUT"
 DATA="$CL_DATA"
 
+# Sampling budget, held equal across arms so nobody wins on step count.
+#   SI arms: N_STEPS Euler/Heun steps.
+#   DDPM:    timesteps/SKIP strided DDIM steps. 1000/50 = 20, matching N_STEPS=20.
+# All four are overridable at submit time, so the epsilon and step-count sweeps need no edits:
+#   sbatch --array=4,5 --export=ALL,EPS0=0.2 slurm/interpolant/02_eval_array.sh
+# (Restored: the portability commit da7190d deleted this block along with the TRACE paths, and
+# every eval task then failed on `--n_steps ''`.)
+N_STEPS="${N_STEPS:-20}"
+SKIP="${SKIP:-50}"
+K_SAMPLES="${K_SAMPLES:-10}"
+EPS0="${EPS0:-0.0}"   # 0.0 = deterministic sampler
+
 cd "$REPO"
 cluster_activate_env
 mkdir -p logs/interpolant "$OUT"
@@ -159,4 +171,11 @@ else
       $WNAME_ARG
 fi
 
+# Succeed only if a results file was actually written. An expansion error inside the branch above
+# (e.g. $((1000/SKIP)) with SKIP unset) aborts the branch without tripping set -e, and the task
+# used to end COMPLETED having evaluated nothing.
+if ! ls "$OUT/$NAME$SWEEP_TAG"/*_results.json >/dev/null 2>&1; then
+  echo "ERROR: no *_results.json in $OUT/$NAME$SWEEP_TAG -- the evaluation did not run to completion."
+  exit 1
+fi
 echo "=== eval $NAME complete; results in $OUT/$NAME$SWEEP_TAG ==="
