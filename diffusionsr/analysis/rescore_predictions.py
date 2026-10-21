@@ -34,11 +34,14 @@ def rescore(arm_dir: str, entity: str, project: str, factor: int) -> dict:
     json_path = os.path.join(arm_dir, f'{name}_results.json')
     old = json.load(open(json_path))
 
-    with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
+    # ignore_cleanup_errors: on NFS a just-closed file can linger as a .nfs* placeholder for a moment.
+    with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'), ignore_cleanup_errors=True) as tmp:
         art = wandb.Api().artifact(f'{entity}/{project}/{name}_eval_predictions:latest')
         art.download(root=tmp)
-        d = np.load(os.path.join(tmp, 'predictions.npz'), allow_pickle=True)
-        pred, gt = d['pred'].astype(np.float64), d['gt'].astype(np.float64)
+        # `with`: np.load keeps the .npz open until closed, and deleting an open file on NFS leaves a
+        # .nfs* placeholder that made removing the temp dir fail ("Directory not empty").
+        with np.load(os.path.join(tmp, 'predictions.npz'), allow_pickle=True) as d:
+            pred, gt = d['pred'].astype(np.float64), d['gt'].astype(np.float64)
 
     new = compute_metrics(pred, gt, _px_um(factor))
     for k in ('MAE_mean', 'MAE_ensemble_mean'):
