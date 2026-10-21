@@ -29,6 +29,7 @@ Usage (on TRACE):
 """
 
 import argparse  # Command-line parsing
+import functools  # Binding the DDIM stride into batch_sample
 import json  # Writing the results file
 import os  # Path handling and existence checks
 import sys  # Used by the project-root bootstrap below
@@ -175,10 +176,17 @@ def main():
 
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
+    # The DDIM stride MUST be bound here. evaluate() calls batch_sample(..., n_steps=...) and never
+    # passes `skip`, which is the only thing DDIM reads. DDPMMatchedHarnessModel happens to default
+    # skip=50, but the plain DiffusionModel defaults skip=None -> 1, i.e. all 1000 steps: task 11's eval
+    # ran 50x the sampling budget of every other arm and hit the 8 h limit. Binding skip makes both
+    # harnesses use exactly --skip.
+    model.batch_sample = functools.partial(model.batch_sample, skip=args.skip)
+    print(f'DDIM: {len(range(0, args.timesteps, args.skip))} steps (timesteps={args.timesteps}, skip={args.skip})')
+
     # The identical metric function the SI arms go through. `sampler='DDIM'` selects the strided
-    # sampler; `n_steps` is passed through only to satisfy the shared signature and is absorbed by
-    # DiffusionModel.batch_sample's **kwargs -- the DDPM's step count is set by `skip` instead,
-    # which is forwarded via the same kwargs tail.
+    # sampler; `n_steps` is passed only to satisfy the shared signature and is absorbed by
+    # batch_sample's **kwargs.
     results, preds, gts, ens_std, overlay_path = evaluate(
         model, test_ds, test_loader,
         k_samples=args.k_samples,
