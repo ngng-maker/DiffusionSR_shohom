@@ -55,6 +55,10 @@ def parse_args():
                    help='DDIM skip interval (ignored for flow-matching).')
     p.add_argument('--force',    action='store_true',
                    help='Recompute even if qss_samples.npz exists.')
+    p.add_argument('--runs_root', type=str, default=None,
+                   help='Path to ablation_v2 runs directory. Default: TRACE path.')
+    p.add_argument('--data_root', type=str, default=None,
+                   help='Path to data_fields directory. Default: TRACE path.')
     return p.parse_args()
 
 
@@ -179,6 +183,16 @@ def main():
     args = parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f'Device: {device}')
+
+    runs_root = Path(args.runs_root) if args.runs_root else RUNS_ROOT
+    data_root = Path(args.data_root) if args.data_root else DATA_ROOT
+    print(f'runs_root: {runs_root}')
+    print(f'data_root: {data_root}')
+
+    # Monkey-patch the module-level constants so helper functions pick them up
+    global RUNS_ROOT, DATA_ROOT
+    RUNS_ROOT = runs_root
+    DATA_ROOT = data_root
 
     # Build variant list
     all_variants = [f'{m}_{e}_{f}_{n}' for m in MODELS for e in ENCS for f in FIELDS for n in NORMS]
