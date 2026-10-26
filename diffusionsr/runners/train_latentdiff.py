@@ -746,14 +746,15 @@ class LatentDiffusionTrainer:
     def _log_artifact(self, path: Path, aliases=None, metadata=None) -> None:
         if wandb.run is None:
             return
-        aliases = aliases or ["latest"]
-        artifact_name = f"latentdiff_{self.mode}_{Path(self.results_folder).name}".replace("/", "_")
+        # Overwrite the file in the run's Files tab instead of logging a new artifact version: this was
+        # called on every improvement, adding one full model version each time. `aliases` is kept for
+        # the call sites; the metadata goes to the run summary, keyed by file name.
         try:
-            artifact = wandb.Artifact(artifact_name, type="model", metadata=_jsonable(metadata or {}))
-            artifact.add_file(str(path))
-            wandb.log_artifact(artifact, aliases=aliases)
+            wandb.save(str(path), base_path=str(self.results_folder), policy="now")
+            for k, v in _jsonable(metadata or {}).items():
+                wandb.run.summary[f"{Path(path).stem}/{k}"] = v
         except Exception as exc:
-            print(f"Could not log wandb artifact {path}: {exc}")
+            print(f"Could not sync {path} to wandb: {exc}")
 
     def _save_checkpoint(self, epoch: int, metrics: dict, is_best: bool) -> None:
         payload = self._checkpoint_payload(epoch, metrics)

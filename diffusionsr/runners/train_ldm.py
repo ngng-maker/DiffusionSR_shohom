@@ -25,7 +25,7 @@ import wandb
 
 from diffusionsr.models.vae_model import VAE2D, KLVAE, vae_loss
 from diffusionsr.runners.train_diffusion import DiffusionModel, forwardpass
-from diffusionsr.utils import upload_checkpoint_artifact, cleanup_old_checkpoint_versions
+from diffusionsr.utils import sync_checkpoint_file, cleanup_old_checkpoint_versions
 
 LATENT_CH = 4  # latent channels; must match VAE latent_channels
 _VAE_CHANNEL_MULTS = (1, 2)  # two stride-2 stages → 4x spatial reduction, same as original KLVAE
@@ -111,9 +111,8 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
             best_val = val_mean
             best_path = results_dir / 'vae_best.pth'
             torch.save(vae.state_dict(), best_path)
-            if wandb.run is not None:
-                upload_checkpoint_artifact(str(best_path), wandb.run.name + '_vae',
-                                           epoch, is_best=True)
+            # Overwritten in place in the run's Files tab (was: a new artifact version per improvement).
+            sync_checkpoint_file(best_path, results_dir)
 
         torch.save({
             'epoch': epoch,
@@ -123,9 +122,7 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
             'train_losses': train_losses,
             'val_losses': val_losses,
         }, ckpt_path)
-        if wandb.run is not None:
-            upload_checkpoint_artifact(str(ckpt_path), wandb.run.name + '_vae',
-                                       epoch, is_best=False)
+        sync_checkpoint_file(ckpt_path, results_dir)
 
     _vae_time_s = time.time() - _vae_t0
     np.savetxt(results_dir / 'vae_training_time.txt', [_vae_time_s])

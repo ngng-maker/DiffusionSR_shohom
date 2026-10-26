@@ -16,8 +16,9 @@ from diffusionsr.utils import (
     linear_beta_schedule,
     quadratic_beta_schedule,
     sigmoid_beta_schedule,
-    upload_checkpoint_artifact,
+    upload_checkpoint_artifact,  # re-exported: train_coupled imports it from here
     cleanup_old_checkpoint_versions,
+    sync_checkpoint_file,
 )
 from pylab import gca
 from torch.utils.data import DataLoader, Subset
@@ -860,11 +861,13 @@ class DiffusionModel():
             os.replace(ckpt_path + '.tmp', ckpt_path)
             if is_best:
                 torch.save(states, os.path.join(self.results_folder, "bestmodel_saved.pth"))
-            _run_name = wandb.run.name if wandb.run is not None else "run"
+            # W&B keeps exactly one ckpt.pth and one bestmodel_saved.pth per run, overwritten in place.
+            # (This used to also log a new versioned artifact on every improvement, which accumulated
+            # one ~160 MB version per improvement and was never pruned.)
+            sync_checkpoint_file(ckpt_path, self.results_folder)
             if is_best:
-                upload_checkpoint_artifact(ckpt_path, _run_name, epoch, is_best=True)
-            if wandb.run is not None:
-                wandb.save(ckpt_path, base_path=str(self.results_folder), policy='now')
+                sync_checkpoint_file(os.path.join(self.results_folder, "bestmodel_saved.pth"),
+                                     self.results_folder)
 
             if epoch % 2 == 0:
                   self.sample_and_save(batch, res, hr, true_lr, upscaled_lr, x_e, step, epoch, split = 'validation')

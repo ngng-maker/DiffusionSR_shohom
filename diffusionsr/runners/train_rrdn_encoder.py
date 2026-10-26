@@ -20,7 +20,7 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                      epoch_subsample_frac=None):
 
 
-    from diffusionsr.utils import make_run_name, upload_checkpoint_artifact, cleanup_old_checkpoint_versions
+    from diffusionsr.utils import make_run_name, sync_checkpoint_file, cleanup_old_checkpoint_versions
     cfg = config or {}
     _run_id_file = os.path.join(results_dir, 'wandb_run_id.txt')
     if os.path.exists(_run_id_file):
@@ -449,7 +449,9 @@ def pretrain_encoder(results_dir, train_dataset, dev_dataset, test_dataset, conf
                 'test_scaled_losses': test_scaled_losses,
                 'min_test_loss': min_test_loss,
             }, best_path)
-            upload_checkpoint_artifact(best_path, wandb.run.name, epoch, is_best=True)
+            # One bestmodel_saved.pth per run, overwritten in place (was: a new artifact version per
+            # improvement; one encoder run held 251 versions).
+            sync_checkpoint_file(best_path, results_dir)
 
         # Epoch-level restart checkpoint (survives SLURM preemption via --requeue)
         torch.save({

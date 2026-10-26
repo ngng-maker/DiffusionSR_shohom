@@ -1,4 +1,5 @@
 import argparse
+import os
 from datetime import date
 from pathlib import Path
 from typing import List, Optional
@@ -114,9 +115,29 @@ def make_run_name(model_type: str, suffix: str = "") -> str:
     return name
 
 
+def sync_checkpoint_file(path, base_path) -> None:
+    """Mirror a checkpoint into the current W&B run's Files tab, OVERWRITING the previous copy.
+
+    This is how every training loop syncs checkpoints: one file per name per run, however long the
+    run trains or however often it is requeued. Use it instead of upload_checkpoint_artifact(), which
+    adds a new 70-160 MB artifact version per call and filled W&B with ~370 GB of old versions.
+    No-op if ``wandb.run`` is None. Upload failures are non-fatal.
+    """
+    import wandb
+    if wandb.run is None or not os.path.exists(str(path)):
+        return
+    try:
+        wandb.save(str(path), base_path=str(base_path), policy='now')
+    except Exception as _e:
+        print(f"W&B checkpoint sync skipped (non-fatal): {_e}")
+
+
 def upload_checkpoint_artifact(ckpt_path: str, run_name: str, epoch: int,
                                 is_best: bool = False, freq: int = 20) -> None:
     """Upload a checkpoint file to W&B as a versioned artifact.
+
+    DEPRECATED for training loops: use sync_checkpoint_file(). Every call creates a new version, so a
+    run accumulates one full checkpoint per improvement. Kept for one-off uploads.
 
     The artifact is named ``{run_name}_ckpt`` (type ``checkpoint``) with
     aliases ``['latest', 'epoch_{epoch}']`` (plus ``'best'`` when is_best).
@@ -160,27 +181,50 @@ def cleanup_old_checkpoint_versions(run_name: str, project: str = None,
     try:
         versions = list(api.artifact_versions(
             'checkpoint', f'{_entity}/{_project}/{artifact_name}'))
-        keep = {'latest', 'best'}
-        deleted = 0
-        for v in versions:
-            if not any(a in keep for a in v.aliases):
-                v.delete()
-                deleted += 1
-        print(f'Cleaned up {deleted} old checkpoint versions for {artifact_name}')
     except Exception as e:
         print(f'Checkpoint cleanup skipped for {artifact_name}: {e}')
+        return
+    keep = {'latest', 'best'}
+    deleted = failed = 0
+    for v in versions:
+        if any(a in keep for a in v.aliases):
+            continue
+        # delete_aliases=True: every version carries an `epoch_N` alias, and W&B refuses to delete
+        # an aliased version without it. Before this, the first delete raised and the cleanup gave up,
+        # so no version was ever removed. Per-version try: one failure no longer aborts the rest.
+        try:
+            v.delete(delete_aliases=True)
+            deleted += 1
+        except Exception:
+            failed += 1
+    print(f'Cleaned up {deleted} old checkpoint versions for {artifact_name}'
+          + (f' ({failed} could not be deleted)' if failed else ''))
 
 
 def restore_checkpoint_from_wandb(entity: str, project: str, run_name: str,
                                     local_dir: str, alias: str = "latest") -> bool:
-    """Download a W&B checkpoint artifact to ``local_dir/ckpt.pth``.
+    """Restore ``local_dir/ckpt.pth`` from W&B when the local copy is missing.
 
-    Returns True if the download succeeded and the file exists, False otherwise.
+    First looks for ``ckpt.pth`` in the Files tab of the run(s) with this display name, which is where
+    sync_checkpoint_file() keeps it; then falls back to the ``{run_name}_ckpt:{alias}`` artifact that
+    older runs uploaded. Returns True if ``ckpt.pth`` exists afterwards, False otherwise.
     Intended as a fallback when the local checkpoint is absent after SLURM
     preemption cleared the scratch filesystem.
     """
     import wandb
     api = wandb.Api()
+    try:
+        runs = sorted(api.runs(f"{entity}/{project}", filters={"display_name": run_name}),
+                      key=lambda r: r.created_at, reverse=True)
+        for run in runs:
+            for f in run.files():
+                if f.name == "ckpt.pth":
+                    f.download(root=local_dir, replace=True)
+                    if (Path(local_dir) / "ckpt.pth").exists():
+                        print(f"Restored checkpoint from W&B run files: {run.path} → {local_dir}/ckpt.pth")
+                        return True
+    except Exception as e:
+        print(f"W&B run-file restore failed ({run_name}): {e}")
     artifact_id = f"{entity}/{project}/{run_name}_ckpt:{alias}"
     try:
         artifact = api.artifact(artifact_id)
