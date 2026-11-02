@@ -182,6 +182,7 @@ def compute_variant(m, e, f, n, run_dir, args, device):
 
 
 def main():
+    global RUNS_ROOT, DATA_ROOT
     args = parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f'Device: {device}')
@@ -192,7 +193,6 @@ def main():
     print(f'data_root: {data_root}')
 
     # Monkey-patch the module-level constants so helper functions pick them up
-    global RUNS_ROOT, DATA_ROOT
     RUNS_ROOT = runs_root
     DATA_ROOT = data_root
 
