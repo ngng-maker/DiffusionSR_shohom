@@ -74,28 +74,32 @@ def load_datasets(f, n):
 
 def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device):
     enc_dir = run_dir / 'encoder' if e == 'enc' else None
+    # Read the saved training config to recover conditioning and other params.
+    cfg_path = run_dir / 'configuration.yml'
+    cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+    conditioning = cfg.get('conditioning', 'implicit')
     try:
         if m == 'ldm':
             from diffusionsr.runners.train_ldm import LDMModel
-            cfg_path = run_dir / 'configuration.yml'
-            cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
             vae_dir = cfg.get('vae_results_dir', str(run_dir))
             model = LDMModel(vae_folder=vae_dir, results_folder=str(run_dir),
                              lr_encoder_folder=str(enc_dir) if enc_dir else None,
                              train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                             encoding=(e == 'enc'), device=device)
+                             encoding=(e == 'enc'), device=device, conditioning=conditioning)
         elif m == 'fm':
             from diffusionsr.runners.train_flow_matching import FlowMatchingModel
             model = FlowMatchingModel(results_folder=str(run_dir),
                                       lr_encoder_folder=str(enc_dir) if enc_dir else None,
                                       train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                      encoding=(e == 'enc'), device=device, enc_output=False)
+                                      encoding=(e == 'enc'), device=device, enc_output=False,
+                                      conditioning=conditioning)
         else:
             from diffusionsr.runners.train_diffusion import DiffusionModel
             model = DiffusionModel(results_folder=str(run_dir),
                                    lr_encoder_folder=str(enc_dir) if enc_dir else None,
                                    train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                   encoding=(e == 'enc'), device=device, enc_output=False)
+                                   encoding=(e == 'enc'), device=device, enc_output=False,
+                                   conditioning=conditioning)
 
         best_path = run_dir / 'bestmodel_saved.pth'
         load_path = best_path if best_path.exists() else run_dir / 'ckpt.pth'
