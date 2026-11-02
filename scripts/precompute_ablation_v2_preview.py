@@ -139,12 +139,10 @@ def compute_variant(m, e, f, n, run_dir, args, device):
     for idx in qss_idx:
         print(f'    frame {idx} ({qss_idx.index(idx)+1}/{args.n_qss})')
         res, hr, lr, ulr = test_ds[idx]
-        hr_last  = hr[-n_ch:].unsqueeze(0).to(device).float()
-        ulr_last = ulr[-n_ch:].unsqueeze(0).to(device).float()
         lr_t     = lr.unsqueeze(0).to(device).float()
         ulr_full = ulr.unsqueeze(0).to(device).float()
-
         hr_batch = hr.unsqueeze(0).to(device).float()
+
         frame_samples = []
         with torch.no_grad():
             x_e = model.compute_x_e(lr_t, ulr_full)
@@ -153,14 +151,15 @@ def compute_variant(m, e, f, n, run_dir, args, device):
                 # raw may be (T,B,C,H,W) for DDIM or (B,C,H,W) for final-only
                 if raw.ndim == 5:
                     raw = raw[-1]  # take last reverse step
-                pred_phys = test_ds.unscale_data(raw.cpu().numpy()[0], input_type='hr')
-                frame_samples.append(pred_phys)  # (C, H, W)
+                # unscale full n_steps*n_ch tensor then take the last-timestep n_ch channels
+                pred_phys = test_ds.unscale_data(raw.cpu().numpy()[0], input_type='hr')[-n_ch:]
+                frame_samples.append(pred_phys)  # (n_ch, H, W)
 
-        frame_samples_arr = np.stack(frame_samples)  # (N_SAMPLES, C, H, W)
-        mean_pred = frame_samples_arr.mean(axis=0)   # (C, H, W)
+        frame_samples_arr = np.stack(frame_samples)  # (N_SAMPLES, n_ch, H, W)
+        mean_pred = frame_samples_arr.mean(axis=0)   # (n_ch, H, W)
 
-        gt_phys  = test_ds.unscale_data(hr_last.cpu().numpy()[0],  input_type='hr')
-        ulr_phys = test_ds.unscale_data(ulr_last.cpu().numpy()[0], input_type='upscaled_lr')
+        gt_phys  = test_ds.unscale_data(hr.numpy(),  input_type='hr')[-n_ch:]
+        ulr_phys = test_ds.unscale_data(ulr.numpy(), input_type='upscaled_lr')[-n_ch:]
 
         all_preds.append(mean_pred)
         gts.append(gt_phys)
