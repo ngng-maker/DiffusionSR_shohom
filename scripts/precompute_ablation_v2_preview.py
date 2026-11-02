@@ -89,13 +89,13 @@ def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device):
             model = FlowMatchingModel(results_folder=str(run_dir),
                                       lr_encoder_folder=str(enc_dir) if enc_dir else None,
                                       train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                      encoding=(e == 'enc'), device=device)
+                                      encoding=(e == 'enc'), device=device, enc_output=False)
         else:
             from diffusionsr.runners.train_diffusion import DiffusionModel
             model = DiffusionModel(results_folder=str(run_dir),
                                    lr_encoder_folder=str(enc_dir) if enc_dir else None,
                                    train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                   encoding=(e == 'enc'), device=device)
+                                   encoding=(e == 'enc'), device=device, enc_output=False)
 
         best_path = run_dir / 'bestmodel_saved.pth'
         load_path = best_path if best_path.exists() else run_dir / 'ckpt.pth'
@@ -144,10 +144,12 @@ def compute_variant(m, e, f, n, run_dir, args, device):
         lr_t     = lr.unsqueeze(0).to(device).float()
         ulr_full = ulr.unsqueeze(0).to(device).float()
 
+        hr_batch = hr.unsqueeze(0).to(device).float()
         frame_samples = []
         with torch.no_grad():
+            x_e = model.compute_x_e(lr_t, ulr_full)
             for s_i in range(args.n_samples):
-                raw = model.batch_sample(ulr_full, lr_t, sampler=sampler, skip=skip)
+                raw = model.batch_sample(test_ds, hr_batch, x_e, sampler=sampler, skip=skip)
                 # raw may be (T,B,C,H,W) for DDIM or (B,C,H,W) for final-only
                 if raw.ndim == 5:
                     raw = raw[-1]  # take last reverse step
