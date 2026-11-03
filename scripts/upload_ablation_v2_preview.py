@@ -1,17 +1,24 @@
 """
-Upload all precomputed preview/qss_samples.npz files to W&B as a single artifact.
+Upload precomputed preview data for all 24 ablation_v2 variants to W&B.
+
+Bundles per variant:
+  - preview/qss_samples.npz     (predictions, GT, stds)
+  - meta.json                   (training_time_h, wandb_run_id)
 
 Run on TRACE after precompute_ablation_v2_preview.py completes:
   /trace/.../envs/diffusion_SR/bin/python scripts/upload_ablation_v2_preview.py \
     --runs_root /trace/.../runs/ablation_v2 \
-    --wandb_project Flow3D_SuperResolution
+    --wandb_project Flow3D_SuperResolution \
+    --wandb_entity ngng-
 
-The artifact 'ablation_v2_preview' (type 'preview') is created in the project.
-The notebook downloads it automatically when local npz files are absent.
+The artifact 'ablation_v2_preview' is downloaded automatically by notebook 18.
 """
 import argparse
+import json
 import os
+import tempfile
 from pathlib import Path
+import numpy as np
 import wandb
 
 MODELS = ['diffusion', 'fm', 'ldm']
@@ -48,21 +55,47 @@ def main():
     )
 
     found = 0
-    for m in MODELS:
-        for e in ENCS:
-            for f in FIELDS:
-                for n in NORMS:
-                    variant = f'{m}_{e}_{f}_{n}'
-                    npz_path = runs_root / variant / 'preview' / 'qss_samples.npz'
-                    if npz_path.exists():
-                        artifact.add_file(str(npz_path), name=f'{variant}/qss_samples.npz')
-                        found += 1
-                        print(f'  Added {variant}')
-                    else:
-                        print(f'  [MISSING] {variant}')
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for m in MODELS:
+            for e in ENCS:
+                for f in FIELDS:
+                    for n in NORMS:
+                        variant = f'{m}_{e}_{f}_{n}'
+                        run_dir = runs_root / variant
+                        npz_path = run_dir / 'preview' / 'qss_samples.npz'
+                        if not npz_path.exists():
+                            print(f'  [MISSING npz] {variant}')
+                            continue
 
-    print(f'\nUploading {found}/24 files...')
-    run.log_artifact(artifact)
+                        artifact.add_file(str(npz_path), name=f'{variant}/qss_samples.npz')
+
+                        # Collect training time (seconds → hours)
+                        t = 0.0
+                        for fname in ['training_time.txt', 'vae_training_time.txt']:
+                            p = run_dir / fname
+                            if p.exists():
+                                t += float(np.loadtxt(str(p)))
+
+                        # Collect W&B run ID
+                        run_id = None
+                        id_file = run_dir / 'wandb_run_id.txt'
+                        if id_file.exists():
+                            run_id = id_file.read_text().strip()
+
+                        # Write meta.json into a temp file and add to artifact
+                        meta = {'training_time_h': t / 3600 if t > 0 else None,
+                                'wandb_run_id': run_id}
+                        meta_path = Path(tmpdir) / f'{variant}_meta.json'
+                        meta_path.write_text(json.dumps(meta))
+                        artifact.add_file(str(meta_path), name=f'{variant}/meta.json')
+
+                        found += 1
+                        print(f'  Added {variant}  (t={meta["training_time_h"]:.1f}h  run={run_id})'
+                              if meta['training_time_h'] else f'  Added {variant}')
+
+        print(f'\nUploading {found}/24 variants...')
+        run.log_artifact(artifact)
+
     run.finish()
     print(f'Done. Artifact: {args.artifact_name}')
 
