@@ -10,6 +10,10 @@
 #SBATCH --output=logs/ablation_v2/lrcond_%a_%j.log
 #SBATCH --error=logs/ablation_v2/lrcond_%a_%j.err
 #SBATCH --requeue
+# SIGUSR1 to the batch shell 10 min before the time limit, so the task requeues itself instead of
+# ending as TIMEOUT. The batchpartition QoS caps jobs at 2 days, but a 600-epoch run takes ~55-85 h
+# on an A40 (330-500 s/epoch, measured on the original v2 runs), so every task needs 2 segments.
+#SBATCH --signal=B:USR1@600
 #
 # Ablation v2, "lrcond" arm: no encoder, conditioned on the bicubic-upscaled LR (the paper's no-encoder
 # ablation). The existing "noenc" arm uses conditioning=none, i.e. it never sees the LR input, so it
@@ -21,7 +25,8 @@
 #
 # Same command line as the original 24 v2 runs (train_srdiff, --force_run_dir runs/ablation_v2/<variant>,
 # --wandb_run_name <variant>), so precompute_ablation_v2_preview.py and notebook 18 find them by name.
-# A requeued/preempted task resumes from <run_dir>/ckpt.pth and the same W&B run (wandb_run_id.txt).
+# A requeued, preempted or self-requeued (time limit) task resumes from <run_dir>/ckpt.pth and the same
+# W&B run (wandb_run_id.txt).
 #
 # Submit from the repo root on TRACE:
 #   mkdir -p logs/ablation_v2 && sbatch slurm/ablation_v2/lrcond_array.sh
@@ -60,12 +65,28 @@ CFG="diffusionsr/configs/ablation_v2/$NAME.yml"
 echo "=== Task $TASK: $NAME (modeltype=${MODELTYPES[$M]}) ==="
 test -f "$CFG" || { echo "missing $CFG"; exit 1; }
 
+# Requeue before the time limit (same pattern as slurm/interpolant/01_train_array.sh): train_srdiff
+# writes ckpt.pth every epoch and resumes from it in the same W&B run (wandb_run_id.txt), so at most
+# one partial epoch is lost per segment. Python runs in the background because bash defers traps
+# until a foreground command returns.
+requeue_before_timeout() {
+  echo "=== $(date) time limit approaching: requeueing job $SLURM_JOB_ID to resume from ckpt.pth ==="
+  scontrol requeue "$SLURM_JOB_ID"
+  # Let SLURM end the job as REQUEUED rather than racing it to exit with a FAILED status.
+  sleep 300
+}
+trap requeue_before_timeout USR1
+
 python -m diffusionsr.runners.train_srdiff \
   --config         "$CFG" \
   --gpu            0 \
   --modeltype      "${MODELTYPES[$M]}" \
   --force_run_dir  "$RUNS/$NAME" \
   --wandb_run_name "$NAME" \
-  --resume_from_wandb "$NAME"
+  --resume_from_wandb "$NAME" &
+PY_PID=$!
+# Returns python's exit status (set -e then fails the task on a crash), or returns early with >128
+# when the USR1 trap fires, by which point scontrol requeue is already ending this job.
+wait $PY_PID
 
 echo "=== $NAME complete ==="
