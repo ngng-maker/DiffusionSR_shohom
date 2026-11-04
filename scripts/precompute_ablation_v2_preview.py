@@ -18,13 +18,21 @@ Optional args:
   --variants   space-separated list of variant names to process (default: all 36; missing run dirs are skipped)
   --n_qss      number of QSS test frames (default: 5)
   --n_samples  ensemble samples per frame (default: 5)
-  --skip       DDIM skip interval (default: 20)
+  --sampler    DiffusionSR/LDM sampler: ddpm (default; ancestral, all `timesteps` steps) or ddim (eta=0)
+  --skip       DDIM skip interval, only with --sampler ddim (default: 20)
+
+DDPM is the default since 2026-11-03: on the v2 encoder checkpoints, deterministic DDIM (eta=0) left
+stray wrong pixels that more DDIM steps did not remove (50/200/1000 steps identical), while ancestral
+DDPM removed them and cut MP-MAE 0.60 -> 0.44 (scripts/diag_ablation_v2_sampling.py). Flow-matching
+always uses its Euler sampler. Previews stamped with a different sampler are recomputed automatically.
   --force      recompute even if qss_samples.npz already exists
 """
 import argparse
 import sys
 import os
 from pathlib import Path
+
+os.environ.setdefault('TQDM_DISABLE', '1')  # DiffusionModel.p_sample_loop wraps its 1000 steps in tqdm
 
 import numpy as np
 import torch
@@ -53,8 +61,10 @@ def parse_args():
                    help='Variant names to process. Default: all 36 (missing run dirs are skipped).')
     p.add_argument('--n_qss',    type=int, default=5)
     p.add_argument('--n_samples',type=int, default=5)
+    p.add_argument('--sampler',  choices=['ddpm', 'ddim'], default='ddpm',
+                   help='DiffusionSR/LDM sampler (flow-matching always uses Euler). Default: ddpm.')
     p.add_argument('--skip',     type=int, default=20,
-                   help='DDIM skip interval (ignored for flow-matching).')
+                   help='DDIM skip interval (only with --sampler ddim).')
     p.add_argument('--force',    action='store_true',
                    help='Recompute even if qss_samples.npz exists.')
     p.add_argument('--runs_root', type=str, default=None,
@@ -93,7 +103,7 @@ def load_run_config(variant, run_dir):
                      f'(looked in {run_dir / "configuration.yml"} and {REPO_CFG_DIR / (variant + ".yml")})')
 
 
-def sampling_settings(m, cfg, skip):
+def sampling_settings(m, cfg, skip, sampler='ddpm'):
     """Schedule/sampler settings matching training (mirrors train_srdiff.py's defaults)."""
     timesteps = int(cfg['timesteps'])
     s = {'timesteps': timesteps, 'schedule': cfg.get('schedule', 'linear')}
@@ -101,6 +111,9 @@ def sampling_settings(m, cfg, skip):
         s['sampler'] = 'euler'
         s['fm_timescale'] = float(cfg.get('fm_timescale', timesteps))
         s['n_sampling_steps'] = int(cfg.get('fm_n_steps', 100))
+    elif sampler == 'ddpm':
+        s['sampler'] = 'DDPM'
+        s['n_sampling_steps'] = timesteps
     else:
         s['sampler'] = 'DDIM'
         s['skip'] = skip
@@ -146,6 +159,20 @@ def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device, cfg, sett
         return None
 
 
+def draw_samples(model, m, settings, hr_batch, x_e, ds):
+    """One reverse chain per batch row; returns the final (B, C, H, W) normalised samples."""
+    if settings['sampler'] == 'euler':
+        out = model.batch_sample(ds, hr_batch, x_e, sampler='euler', n_steps=settings['n_sampling_steps'])
+    elif settings['sampler'] == 'DDIM':
+        out = model.batch_sample(ds, hr_batch, x_e, sampler='DDIM', skip=settings['skip'])
+    elif m == 'ldm':  # LDMModel.batch_sample('DDPM') samples at latent size and decodes
+        out = model.batch_sample(ds, hr_batch, x_e, sampler='DDPM')
+    else:
+        # DiffusionModel.batch_sample('DDPM') hard-codes batch_size=2, so call the ancestral loop directly.
+        out = model.p_sample_loop(model.model, x_e, shape=tuple(hr_batch.shape), timesteps=model.timesteps)
+    return out[-1]  # every path returns the per-step trajectory; keep the last reverse step
+
+
 def compute_variant(m, e, f, n, run_dir, args, device):
     out_dir = run_dir / 'preview'
     out_file = out_dir / 'qss_samples.npz'
@@ -155,7 +182,7 @@ def compute_variant(m, e, f, n, run_dir, args, device):
     except ValueError as exc:
         print(f'  [WARN] {exc}')
         return False
-    settings = sampling_settings(m, cfg, args.skip)
+    settings = sampling_settings(m, cfg, args.skip, args.sampler)
     print(f'  Sampling settings (from {cfg_path}): {settings}')
 
     if out_file.exists() and not args.force:
@@ -182,11 +209,6 @@ def compute_variant(m, e, f, n, run_dir, args, device):
 
     n_ch      = len(FIELD_NAMES[f])
     qss_idx   = list(range(len(test_ds) - args.n_qss, len(test_ds)))
-    if m == 'fm':
-        sample_kw = dict(sampler='euler', n_steps=settings['n_sampling_steps'])
-    else:
-        sample_kw = dict(sampler='DDIM', skip=settings['skip'])
-
     all_preds, gts, ulrs, all_samples = [], [], [], []
 
     for idx in qss_idx:
@@ -194,21 +216,17 @@ def compute_variant(m, e, f, n, run_dir, args, device):
         res, hr, lr, ulr = test_ds[idx]
         lr_t     = lr.unsqueeze(0).to(device).float()
         ulr_full = ulr.unsqueeze(0).to(device).float()
-        hr_batch = hr.unsqueeze(0).to(device).float()
+        # All ensemble members of a frame are drawn in one batch (independent noise per member).
+        hr_batch = hr.unsqueeze(0).repeat(args.n_samples, 1, 1, 1).to(device).float()
 
-        frame_samples = []
         with torch.no_grad():
             x_e = model.compute_x_e(lr_t, ulr_full)
-            for s_i in range(args.n_samples):
-                raw = model.batch_sample(test_ds, hr_batch, x_e, **sample_kw)
-                # raw may be (T,B,C,H,W) for DDIM or (B,C,H,W) for final-only
-                if raw.ndim == 5:
-                    raw = raw[-1]  # take last reverse step
-                # unscale full n_steps*n_ch tensor then take the last-timestep n_ch channels
-                pred_phys = test_ds.unscale_data(raw.cpu().numpy()[0], input_type='hr')[-n_ch:]
-                frame_samples.append(pred_phys)  # (n_ch, H, W)
-
-        frame_samples_arr = np.stack(frame_samples)  # (N_SAMPLES, n_ch, H, W)
+            if x_e is not None:
+                x_e = x_e.repeat(args.n_samples, *[1] * (x_e.ndim - 1))
+            raw = draw_samples(model, m, settings, hr_batch, x_e, test_ds)  # (N_SAMPLES, C, H, W)
+        # unscale the full n_steps*n_ch tensor, then keep the last-timestep n_ch channels
+        frame_samples_arr = np.stack([test_ds.unscale_data(r, input_type='hr')[-n_ch:]
+                                      for r in raw.cpu().numpy()])  # (N_SAMPLES, n_ch, H, W)
         mean_pred = frame_samples_arr.mean(axis=0)   # (n_ch, H, W)
 
         gt_phys  = test_ds.unscale_data(hr.numpy(),  input_type='hr')[-n_ch:]
