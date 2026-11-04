@@ -18,8 +18,12 @@ import json
 import os
 import tempfile
 from pathlib import Path
+import sys
 import numpy as np
 import wandb
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from diffusionsr.utils import log_single_version_artifact
 
 MODELS = ['diffusion', 'fm', 'ldm']
 ENCS   = ['enc', 'noenc']
@@ -48,12 +52,7 @@ def main():
         name='upload_ablation_v2_preview',
     )
 
-    artifact = wandb.Artifact(
-        name=args.artifact_name,
-        type='preview',
-        description='Precomputed QSS samples (preds/gts/ulrs/stds/samples) for all 24 ablation_v2 variants.',
-    )
-
+    files = {}  # {name_in_artifact: local_path}
     found = 0
     with tempfile.TemporaryDirectory() as tmpdir:
         for m in MODELS:
@@ -66,8 +65,15 @@ def main():
                         if not npz_path.exists():
                             print(f'  [MISSING npz] {variant}')
                             continue
+                        with np.load(str(npz_path)) as _z:
+                            stamped = 'sampling_timesteps' in _z.files
+                        if not stamped:
+                            # Pre-fix previews were sampled with timesteps=200 instead of the trained 1000.
+                            print(f'  [STALE npz, not uploaded] {variant}: no sampling_* stamp; '
+                                  f're-run precompute_ablation_v2_preview.py')
+                            continue
 
-                        artifact.add_file(str(npz_path), name=f'{variant}/qss_samples.npz')
+                        files[f'{variant}/qss_samples.npz'] = str(npz_path)
 
                         # Collect training time (seconds → hours)
                         t = 0.0
@@ -87,16 +93,21 @@ def main():
                                 'wandb_run_id': run_id}
                         meta_path = Path(tmpdir) / f'{variant}_meta.json'
                         meta_path.write_text(json.dumps(meta))
-                        artifact.add_file(str(meta_path), name=f'{variant}/meta.json')
+                        files[f'{variant}/meta.json'] = str(meta_path)
 
                         found += 1
                         print(f'  Added {variant}  (t={meta["training_time_h"]:.1f}h  run={run_id})'
                               if meta['training_time_h'] else f'  Added {variant}')
 
         print(f'\nUploading {found}/24 variants...')
-        run.log_artifact(artifact)
+        # Single version: commit the new one, then delete every older version of this artifact.
+        ok = log_single_version_artifact(
+            args.artifact_name, 'preview', files, run=run,
+            description='Precomputed QSS samples (preds/gts/ulrs/stds/samples) for all 24 ablation_v2 variants.')
 
     run.finish()
+    if not ok:
+        raise SystemExit('Upload failed; see the [wandb] message above.')
     print(f'Done. Artifact: {args.artifact_name}')
 
 

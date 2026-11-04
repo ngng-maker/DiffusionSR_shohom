@@ -6,7 +6,9 @@ Saves {run_dir}/preview/qss_samples.npz with keys:
   gts     (N_QSS, C, H, W)  -- ground truth, physical units
   ulrs    (N_QSS, C, H, W)  -- upscaled LR input, physical units
   stds    (N_QSS, H, W)     -- per-pixel std across N_SAMPLES draws, temperature channel
-  samples (N_SAMPLES, N_QSS, C, H, W) -- all individual draws, physical units
+  samples (N_QSS, N_SAMPLES, C, H, W) -- all individual draws, physical units
+  sampling_* (scalars) -- timesteps/schedule/sampler/steps used; read from the run's training config.
+                          Existing previews without matching stamps are recomputed automatically.
 
 Run as a SLURM job:
   sbatch --partition=batch --gres=gpu:1 --time=12:00:00 \\
@@ -72,34 +74,64 @@ def load_datasets(f, n):
     return train_ds, dev_ds, test_ds
 
 
-def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device):
+REPO_CFG_DIR = REPO_ROOT / 'diffusionsr' / 'configs' / 'ablation_v2'
+
+
+def load_run_config(variant, run_dir):
+    """Return (cfg, path) for the config this run was TRAINED with.
+
+    Prefers the copy train_srdiff saved next to the checkpoint, then the repo copy. Raises rather
+    than guessing: building a model without the trained `timesteps` silently falls back to the
+    constructor default (200), which samples a 1000-step model with the wrong noise schedule.
+    """
+    for path in (run_dir / 'configuration.yml', REPO_CFG_DIR / f'{variant}.yml'):
+        if path.exists():
+            cfg = yaml.safe_load(path.read_text()) or {}
+            if 'timesteps' in cfg:
+                return cfg, path
+    raise ValueError(f'{variant}: no training config with `timesteps` found '
+                     f'(looked in {run_dir / "configuration.yml"} and {REPO_CFG_DIR / (variant + ".yml")})')
+
+
+def sampling_settings(m, cfg, skip):
+    """Schedule/sampler settings matching training (mirrors train_srdiff.py's defaults)."""
+    timesteps = int(cfg['timesteps'])
+    s = {'timesteps': timesteps, 'schedule': cfg.get('schedule', 'linear')}
+    if m == 'fm':
+        s['sampler'] = 'euler'
+        s['fm_timescale'] = float(cfg.get('fm_timescale', timesteps))
+        s['n_sampling_steps'] = int(cfg.get('fm_n_steps', 100))
+    else:
+        s['sampler'] = 'DDIM'
+        s['skip'] = skip
+        s['n_sampling_steps'] = len(range(0, timesteps, skip))
+    return s
+
+
+def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device, cfg, settings):
     enc_dir = run_dir / 'encoder' if e == 'enc' else None
-    # Read the saved training config to recover conditioning and other params.
-    cfg_path = run_dir / 'configuration.yml'
-    cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
     conditioning = cfg.get('conditioning', 'implicit')
+    # timesteps/schedule MUST match training: they define the DDPM noise schedule (diffusion, LDM)
+    # and, via fm_timescale, the time-embedding scale (FM).
+    common = dict(results_folder=str(run_dir),
+                  lr_encoder_folder=str(enc_dir) if enc_dir else None,
+                  train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
+                  encoding=(e == 'enc'), device=device, conditioning=conditioning,
+                  timesteps=settings['timesteps'], schedule=settings['schedule'])
     try:
         if m == 'ldm':
             from diffusionsr.runners.train_ldm import LDMModel
             vae_dir = cfg.get('vae_results_dir', str(run_dir))
-            model = LDMModel(vae_folder=vae_dir, results_folder=str(run_dir),
-                             lr_encoder_folder=str(enc_dir) if enc_dir else None,
-                             train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                             encoding=(e == 'enc'), device=device, conditioning=conditioning)
+            model = LDMModel(vae_folder=vae_dir, **common)
         elif m == 'fm':
             from diffusionsr.runners.train_flow_matching import FlowMatchingModel
-            model = FlowMatchingModel(results_folder=str(run_dir),
-                                      lr_encoder_folder=str(enc_dir) if enc_dir else None,
-                                      train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                      encoding=(e == 'enc'), device=device, enc_output=False,
-                                      conditioning=conditioning)
+            model = FlowMatchingModel(enc_output=False, fm_timescale=settings['fm_timescale'], **common)
         else:
             from diffusionsr.runners.train_diffusion import DiffusionModel
-            model = DiffusionModel(results_folder=str(run_dir),
-                                   lr_encoder_folder=str(enc_dir) if enc_dir else None,
-                                   train_dataset=train_ds, dev_dataset=dev_ds, test_dataset=test_ds,
-                                   encoding=(e == 'enc'), device=device, enc_output=False,
-                                   conditioning=conditioning)
+            model = DiffusionModel(enc_output=False, **common)
+        assert model.timesteps == settings['timesteps'], (model.timesteps, settings)
+        if m == 'fm':
+            assert model.fm_timescale == settings['fm_timescale'], (model.fm_timescale, settings)
 
         best_path = run_dir / 'bestmodel_saved.pth'
         load_path = best_path if best_path.exists() else run_dir / 'ckpt.pth'
@@ -117,9 +149,24 @@ def load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device):
 def compute_variant(m, e, f, n, run_dir, args, device):
     out_dir = run_dir / 'preview'
     out_file = out_dir / 'qss_samples.npz'
+    variant = f'{m}_{e}_{f}_{n}'
+    try:
+        cfg, cfg_path = load_run_config(variant, run_dir)
+    except ValueError as exc:
+        print(f'  [WARN] {exc}')
+        return False
+    settings = sampling_settings(m, cfg, args.skip)
+    print(f'  Sampling settings (from {cfg_path}): {settings}')
+
     if out_file.exists() and not args.force:
-        print(f'  Skipping (already exists): {out_file}')
-        return True
+        # Only reuse a preview stamped with these exact sampling settings; unstamped files predate the
+        # timesteps fix (sampled with T=200) and are always recomputed.
+        with np.load(str(out_file)) as old:
+            stamped = {k[len('sampling_'):]: old[k].item() for k in old.files if k.startswith('sampling_')}
+        if stamped == settings:
+            print(f'  Skipping (already exists with matching sampling settings): {out_file}')
+            return True
+        print(f'  Recomputing stale preview (stamped {stamped or "none"}): {out_file}')
 
     print(f'  Loading datasets ({f}, {n})...')
     try:
@@ -129,14 +176,16 @@ def compute_variant(m, e, f, n, run_dir, args, device):
         return False
 
     print(f'  Loading model {m}/{e}/{f}/{n}...')
-    model = load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device)
+    model = load_model(m, e, f, n, run_dir, train_ds, dev_ds, test_ds, device, cfg, settings)
     if model is None:
         return False
 
     n_ch      = len(FIELD_NAMES[f])
     qss_idx   = list(range(len(test_ds) - args.n_qss, len(test_ds)))
-    sampler   = 'euler' if m == 'fm' else 'DDIM'
-    skip      = args.skip
+    if m == 'fm':
+        sample_kw = dict(sampler='euler', n_steps=settings['n_sampling_steps'])
+    else:
+        sample_kw = dict(sampler='DDIM', skip=settings['skip'])
 
     all_preds, gts, ulrs, all_samples = [], [], [], []
 
@@ -151,7 +200,7 @@ def compute_variant(m, e, f, n, run_dir, args, device):
         with torch.no_grad():
             x_e = model.compute_x_e(lr_t, ulr_full)
             for s_i in range(args.n_samples):
-                raw = model.batch_sample(test_ds, hr_batch, x_e, sampler=sampler, skip=skip)
+                raw = model.batch_sample(test_ds, hr_batch, x_e, **sample_kw)
                 # raw may be (T,B,C,H,W) for DDIM or (B,C,H,W) for final-only
                 if raw.ndim == 5:
                     raw = raw[-1]  # take last reverse step
@@ -179,7 +228,8 @@ def compute_variant(m, e, f, n, run_dir, args, device):
     out_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(str(out_file),
                         preds=preds_arr, gts=gts_arr, ulrs=ulrs_arr,
-                        samples=samples_arr, stds=stds_arr)
+                        samples=samples_arr, stds=stds_arr,
+                        **{f'sampling_{k}': np.array(v) for k, v in settings.items()})
     print(f'  Saved → {out_file}')
     return True
 
