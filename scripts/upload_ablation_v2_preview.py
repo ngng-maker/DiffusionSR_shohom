@@ -1,5 +1,5 @@
 """
-Upload precomputed preview data for all 24 ablation_v2 variants to W&B.
+Upload precomputed preview data for the ablation_v2 variants (up to 36) to W&B.
 
 Bundles per variant:
   - preview/qss_samples.npz     (predictions, GT, stds)
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from diffusionsr.utils import log_single_version_artifact
 
 MODELS = ['diffusion', 'fm', 'ldm']
-ENCS   = ['enc', 'noenc']
+ENCS   = ['enc', 'noenc', 'lrcond']  # lrcond: no encoder, conditioned on upscaled LR
 FIELDS = ['temp', 'multi']
 NORMS  = ['std', 'gstd']
 
@@ -99,11 +99,11 @@ def main():
                         print(f'  Added {variant}  (t={meta["training_time_h"]:.1f}h  run={run_id})'
                               if meta['training_time_h'] else f'  Added {variant}')
 
-        print(f'\nUploading {found}/24 variants...')
+        print(f'\nUploading {found}/{len(MODELS)*len(ENCS)*len(FIELDS)*len(NORMS)} variants...')
         # Single version: commit the new one, then delete every older version of this artifact.
         ok = log_single_version_artifact(
             args.artifact_name, 'preview', files, run=run,
-            description='Precomputed QSS samples (preds/gts/ulrs/stds/samples) for all 24 ablation_v2 variants.')
+            description='Precomputed QSS samples (preds/gts/ulrs/stds/samples) for the ablation_v2 variants (up to 36).')
 
     run.finish()
     if not ok:

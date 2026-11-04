@@ -200,14 +200,25 @@ class LDMModel(DiffusionModel):
     # ── Overrides for latent-space operation ──────────────────────────────────
 
     def compute_x_e(self, true_lr, upscaled_lr):
-        """Return latent conditioning: VAE_enc(RRDB(LR)) -> z_e (B, 4, H/4, W/4).
-        Returns None for no-encoder configs (encoding=False, conditioning='none')."""
+        """Return latent conditioning z_e (B, 4, H/4, W/4) = VAE_enc(pixel-space HR estimate).
+
+        encoding=True:                       HR estimate = RRDB(LR) (already in HR-normalised units).
+        encoding=False, conditioning!='none': HR estimate = bicubic-upscaled LR, re-normalised from the
+                                             upscaled_lr statistics to the HR statistics the frozen VAE
+                                             was trained on (the encoder-free analogue of the line above).
+        encoding=False, conditioning='none': None (unconditional)."""
         if not self.encoding:
-            return None
-        x_e_pixel = forwardpass(self.lr_enc, true_lr.to(self.device).float(),
-                                factor=self.train_dataset.factor, output=True,
-                                transform_rescale=self.transform_rescale,
-                                dataset=self.train_dataset)
+            if self.conditioning == 'none':
+                return None
+            ds = self.train_dataset
+            phys = ds.unscale_data(upscaled_lr.to(self.device).float(), input_type='upscaled_lr',
+                                   maintain_torch=True)
+            x_e_pixel = ds.rescale_data(phys, input_type='hr', maintain_torch=True).float()
+        else:
+            x_e_pixel = forwardpass(self.lr_enc, true_lr.to(self.device).float(),
+                                    factor=self.train_dataset.factor, output=True,
+                                    transform_rescale=self.transform_rescale,
+                                    dataset=self.train_dataset)
         with torch.no_grad():
             mu_e, _ = self.vae.encode(x_e_pixel)
         return mu_e  # use mean for stable conditioning

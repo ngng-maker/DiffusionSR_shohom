@@ -15,7 +15,7 @@ Run as a SLURM job:
     --wrap="cd /trace/.../DiffusionSR_shohom; /path/to/python scripts/precompute_ablation_v2_preview.py"
 
 Optional args:
-  --variants   space-separated list of variant names to process (default: all 24)
+  --variants   space-separated list of variant names to process (default: all 36; missing run dirs are skipped)
   --n_qss      number of QSS test frames (default: 5)
   --n_samples  ensemble samples per frame (default: 5)
   --skip       DDIM skip interval (default: 20)
@@ -39,7 +39,7 @@ RUNS_ROOT = Path('/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffu
 DATA_ROOT = Path('/trace/group/forgelab/ngng/multifield/data_fields')
 
 MODELS = ['diffusion', 'fm', 'ldm']
-ENCS   = ['enc', 'noenc']
+ENCS   = ['enc', 'noenc', 'lrcond']  # lrcond: no encoder, conditioned on upscaled LR
 FIELDS = ['temp', 'multi']
 NORMS  = ['std', 'gstd']
 
@@ -50,7 +50,7 @@ NORM_KEY    = {'std': 'standardize',    'gstd': 'global_standardize'}
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--variants', nargs='*', default=None,
-                   help='Variant names to process. Default: all 24.')
+                   help='Variant names to process. Default: all 36 (missing run dirs are skipped).')
     p.add_argument('--n_qss',    type=int, default=5)
     p.add_argument('--n_samples',type=int, default=5)
     p.add_argument('--skip',     type=int, default=20,

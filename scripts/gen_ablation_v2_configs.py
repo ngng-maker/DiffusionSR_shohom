@@ -1,4 +1,8 @@
-"""Generate the 24 ablation_v2 configs: 3 models × 2 enc × 2 fields × 2 normalize."""
+"""Generate the 36 ablation_v2 configs: 3 models × 3 conditioning × 2 fields × 2 normalize.
+
+Conditioning arms: enc (frozen RRDB encoder), noenc (unconditional), lrcond (bicubic-upscaled LR,
+no encoder; added 2026-11 to match the paper's no-encoder ablation).
+"""
 from pathlib import Path
 import yaml
 
@@ -49,8 +53,15 @@ def ldm_extra(field_key, norm_key):
         vae_results_dir = f'{V2}/vae_{field_key}_{norm_key}',
     )
 
+# Conditioning for the encoder-free, LR-conditioned arm ('lrcond'): the paper's no-encoder ablation
+# (configs/conditioning_ablation/*_noencoder.yml) conditions on the bicubic-upscaled LR rather than
+# nothing. Pixel-space models concatenate it with x_t ('explicit'): implicit addition would need the
+# conditioning to have init_dim (64) channels, but upscaled LR has n_steps*n_fields. LDM encodes it with
+# its frozen VAE and adds the latent, exactly like its encoder arm ('implicit', see LDMModel.compute_x_e).
+LRCOND_CONDITIONING = {'diffusion': 'explicit', 'fm': 'explicit', 'ldm': 'implicit'}
+
 for model in ('diffusion', 'fm', 'ldm'):
-    for enc in ('enc', 'noenc'):
+    for enc in ('enc', 'noenc', 'lrcond'):
         for field_key in ('temp', 'multi'):
             for norm_key in ('std', 'gstd'):
                 cfg = dict(BASE)
@@ -61,6 +72,9 @@ for model in ('diffusion', 'fm', 'ldm'):
                     cfg['encoding']           = True
                     cfg['conditioning']       = 'implicit'
                     cfg['encoder_results_dir'] = ENC_DIRS[(field_key, norm_key)]
+                elif enc == 'lrcond':
+                    cfg['encoding']     = False
+                    cfg['conditioning'] = LRCOND_CONDITIONING[model]
                 else:
                     cfg['encoding']    = False
                     cfg['conditioning'] = 'none'
@@ -74,7 +88,9 @@ for model in ('diffusion', 'fm', 'ldm'):
                 model_label = {'diffusion': 'DiffusionSR (pixel-space DDPM)',
                                'fm':        'Flow-Matching',
                                'ldm':       'LDM (latent DDPM)'}[model]
-                enc_label   = 'RRDB encoder' if enc == 'enc' else 'no encoder'
+                enc_label   = {'enc':    'RRDB encoder',
+                               'noenc':  'no encoder',
+                               'lrcond': 'no encoder, conditioned on bicubic-upscaled LR'}[enc]
                 field_label = 'temperature only' if field_key == 'temp' else 'temperature + sdfliqlabel'
                 norm_label  = NORM_METHOD[norm_key]
                 comment = (
