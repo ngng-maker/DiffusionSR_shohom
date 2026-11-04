@@ -248,6 +248,17 @@ def evaluate(
     N, K, C, H, W = preds.shape
 
     results = compute_metrics(preds, gts, px_um, temp_field_idx)
+    ens_std = preds.std(axis=1)     # (N, C, H, W) per-pixel ensemble std
+    overlay_path = save_overlay_png(preds, gts, ulrs, out_dir, plot_frame_idx, temp_field_idx)
+    return results, preds, gts, ens_std, overlay_path
+
+
+def save_overlay_png(preds, gts, ulrs, out_dir, plot_frame_idx: int = 70, temp_field_idx: int = 0) -> str:
+    """The per-eval overlay figure (upscaled LR, GT, all K samples, ensemble mean and std).
+
+    Shared by evaluate() and evaluate_si_schedules.py so every experiment renders it identically.
+    """
+    N, K = preds.shape[:2]
     ens_mean = preds.mean(axis=1)   # (N, C, H, W)
     ens_std  = preds.std(axis=1)    # (N, C, H, W) per-pixel ensemble std
 
@@ -275,8 +286,7 @@ def evaluate(
     plt.tight_layout()
     overlay_path = os.path.join(out_dir, 'overlay_frame{}.png'.format(idx))
     plt.savefig(overlay_path, dpi=120, bbox_inches='tight'); plt.close('all')
-
-    return results, preds, gts, ens_std, overlay_path
+    return overlay_path
 
 
 def main():

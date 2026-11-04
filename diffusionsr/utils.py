@@ -237,3 +237,94 @@ def restore_checkpoint_from_wandb(entity: str, project: str, run_name: str,
     except Exception as e:
         print(f"W&B checkpoint restore failed ({artifact_id}): {e}")
         return False
+
+
+# ---------------------------------------------------------------------------------------------
+# ONE W&B artifact (and one version of it) per experiment configuration
+# ---------------------------------------------------------------------------------------------
+# W&B artifacts are versioned and cannot be overwritten in place. "Overwrite" is therefore implemented
+# as: log a new version aliased `latest`, wait until the server has committed it, then delete every
+# other version of that collection. At any time the collection holds the newest committed version
+# (briefly two, between commit and prune). A preemption between the two steps is harmless: the next
+# upload prunes everything except its own version. Re-logging identical files is deduplicated by W&B
+# to the existing version, which the prune then keeps.
+
+def wandb_safe_id(text: str, max_len: int = 64) -> str:
+    """Deterministic W&B run id from a config name: lowercase letters, digits and '-' only."""
+    import re
+    s = re.sub(r'[^a-z0-9]+', '-', str(text).lower()).strip('-')
+    return s[:max_len].rstrip('-')
+
+
+def prune_artifact_versions(entity: str, project: str, name: str, type_: str,
+                            keep_version: str) -> int:
+    """Delete every version of `entity/project/name` except `keep_version` (e.g. 'v7'). Returns count."""
+    import wandb
+    api = wandb.Api(timeout=120)
+    deleted = 0
+    try:
+        versions = list(api.artifacts(type_, f'{entity}/{project}/{name}'))
+    except Exception as e:
+        print(f'  [wandb] prune skipped for {name}: {e}')
+        return 0
+    for v in versions:
+        if v.version == keep_version:
+            continue
+        try:
+            v.delete(delete_aliases=True)   # versions carry aliases; W&B refuses without this
+            deleted += 1
+        except Exception as e:
+            print(f'  [wandb] could not delete {name}:{v.version}: {e}')
+    return deleted
+
+
+def log_single_version_artifact(name: str, type_: str, files: dict, metadata: dict | None = None,
+                                description: str | None = None, run=None) -> bool:
+    """Upload `files` ({name_in_artifact: local_path}) as the ONLY version of artifact `name`.
+
+    Missing files are skipped. Never raises: an upload failure must not kill a training run, and the
+    next call retries (and prunes) anyway. Returns True if the new version was committed.
+    """
+    import wandb
+    run = run or wandb.run
+    if run is None:
+        return False
+    try:
+        art = wandb.Artifact(name=name, type=type_, metadata=metadata or {}, description=description)
+        added = 0
+        for arcname, path in files.items():
+            if path and os.path.exists(str(path)):
+                art.add_file(str(path), name=arcname)
+                added += 1
+        if not added:
+            return False
+        logged = run.log_artifact(art, aliases=['latest'])
+        logged.wait()                       # block until committed, so the prune cannot race it
+        n = prune_artifact_versions(run.entity, run.project, name, type_, logged.version)
+        print(f'  [wandb] {name}:{logged.version} committed ({added} files); pruned {n} old version(s)')
+        return True
+    except Exception as e:
+        print(f'  [wandb] single-version upload of {name} failed (non-fatal): {e}')
+        return False
+
+
+def restore_single_version_artifact(entity: str, project: str, name: str, local_dir: str,
+                                    only: list | None = None) -> bool:
+    """Download `name:latest` into local_dir (optionally only the listed files). False if absent."""
+    import wandb
+    try:
+        art = wandb.Api(timeout=120).artifact(f'{entity}/{project}/{name}:latest')
+    except Exception as e:
+        print(f'  [wandb] no artifact {name}:latest to restore ({str(e).splitlines()[0][:120]})')
+        return False
+    os.makedirs(local_dir, exist_ok=True)
+    if only:
+        for fname in only:
+            try:
+                art.get_entry(fname).download(root=local_dir)
+            except Exception:
+                pass
+    else:
+        art.download(root=local_dir)
+    print(f'  [wandb] restored {name}:{art.version} -> {local_dir}')
+    return True

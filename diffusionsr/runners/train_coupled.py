@@ -310,34 +310,15 @@ class CoupledInterpolantModel(FlowMatchingModel):
         # ------------------------------------------------------------------
         # W&B: resume or start exactly ONE run per experiment
         # ------------------------------------------------------------------
-        wandb_id_file = self.results_folder / 'wandb_run_id.txt'
-        if wandb_id_file.exists():
-            with open(wandb_id_file) as f:
-                run_id = f.read().strip()
-            wandb.init(
-                id=run_id,
-                resume='must',
-                project=wandb_project,
-                entity=wandb_entity or os.getenv('WANDB_ENTITY', ''),
-                name=wandb_run_name or None,
-            )
-        else:
-            cfg = dict(
-                sigma=self.sigma, gamma_c=self.gamma_c, si_cond=self._si_cond, si_base=self.si_base,
-                ema_decay=self.ema_decay, grad_clip=self.grad_clip,
-                fm_timescale=self.fm_timescale, epochs=epochs,
-                batch_size=batch_size, learning_rate=learning_rate,
-                loss_type=loss_type,
-                **(wandb_config or {}),
-            )
-            wandb.init(
-                project=wandb_project,
-                entity=wandb_entity or os.getenv('WANDB_ENTITY', ''),
-                name=wandb_run_name or None,
-                config=cfg,
-            )
-            with open(wandb_id_file, 'w') as f:
-                f.write(wandb.run.id)
+        cfg = dict(
+            sigma=self.sigma, gamma_c=self.gamma_c, si_cond=self._si_cond, si_base=self.si_base,
+            ema_decay=self.ema_decay, grad_clip=self.grad_clip,
+            fm_timescale=self.fm_timescale, epochs=epochs,
+            batch_size=batch_size, learning_rate=learning_rate,
+            loss_type=loss_type,
+            **(wandb_config or {}),
+        )
+        self._wandb_init(wandb_project, wandb_entity, wandb_run_name, cfg)
 
         # ------------------------------------------------------------------
         # Data loaders
@@ -441,10 +422,7 @@ class CoupledInterpolantModel(FlowMatchingModel):
             # bounding how much progress a preemption can cost: at most ckpt_every epochs.
             is_last_epoch = (epoch == epochs - 1)
             if wandb.run is not None and (epoch % ckpt_every == 0 or is_last_epoch):
-                wandb.save(ckpt_path, base_path=str(self.results_folder), policy='now')
-                if os.path.exists(best_path):
-                    wandb.save(best_path, base_path=str(self.results_folder), policy='now')
-                print(f'  [wandb] synced ckpt.pth + bestmodel_saved.pth at epoch {epoch}')
+                self._sync_checkpoints(epoch, ckpt_path, best_path)
 
             # Keep the run summary current rather than writing it only at the end, so an
             # interrupted run still reports its best loss in the W&B table.
@@ -463,15 +441,44 @@ class CoupledInterpolantModel(FlowMatchingModel):
 
         if wandb.run is not None:
             wandb.run.summary['training_time_s'] = _training_time_s
-            # Final sync so the very last weights are on W&B even if the loop ended off-cadence.
-            if os.path.exists(best_path):
-                wandb.save(best_path, base_path=str(self.results_folder), policy='now')
-            # Still prune any versioned artifacts left behind by an earlier run of this code.
-            try:
-                cleanup_old_checkpoint_versions(wandb.run.name)
-            except Exception as _cleanup_error:  # Never let cleanup failure lose a finished run
-                print(f'  [wandb] artifact cleanup skipped: {_cleanup_error}')
+            self._final_sync(ckpt_path, best_path)
             wandb.finish()
+
+    # ------------------------------------------------------------------
+    # W&B hooks. Subclasses override these to change HOW a run and its checkpoints are stored
+    # without touching the training loop (see train_si_schedules.ScheduledInterpolantModel).
+    # ------------------------------------------------------------------
+
+    def _wandb_init(self, wandb_project, wandb_entity, wandb_run_name, cfg):
+        """Resume the run recorded in wandb_run_id.txt, or start one and record it."""
+        wandb_id_file = self.results_folder / 'wandb_run_id.txt'
+        entity = wandb_entity or os.getenv('WANDB_ENTITY', '')
+        if wandb_id_file.exists():
+            with open(wandb_id_file) as f:
+                run_id = f.read().strip()
+            wandb.init(id=run_id, resume='must', project=wandb_project, entity=entity,
+                       name=wandb_run_name or None)
+        else:
+            wandb.init(project=wandb_project, entity=entity, name=wandb_run_name or None, config=cfg)
+            with open(wandb_id_file, 'w') as f:
+                f.write(wandb.run.id)
+
+    def _sync_checkpoints(self, epoch, ckpt_path, best_path):
+        """Mirror ckpt.pth and bestmodel_saved.pth to the run's Files tab (overwritten in place)."""
+        wandb.save(ckpt_path, base_path=str(self.results_folder), policy='now')
+        if os.path.exists(best_path):
+            wandb.save(best_path, base_path=str(self.results_folder), policy='now')
+        print(f'  [wandb] synced ckpt.pth + bestmodel_saved.pth at epoch {epoch}')
+
+    def _final_sync(self, ckpt_path, best_path):
+        # Final sync so the very last weights are on W&B even if the loop ended off-cadence.
+        if os.path.exists(best_path):
+            wandb.save(best_path, base_path=str(self.results_folder), policy='now')
+        # Still prune any versioned artifacts left behind by an earlier run of this code.
+        try:
+            cleanup_old_checkpoint_versions(wandb.run.name)
+        except Exception as _cleanup_error:  # Never let cleanup failure lose a finished run
+            print(f'  [wandb] artifact cleanup skipped: {_cleanup_error}')
 
     # ------------------------------------------------------------------
     # Sampling interface

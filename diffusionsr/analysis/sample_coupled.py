@@ -141,7 +141,7 @@ class DopRK45Sampler:
       a51 = 19372/6561,  a52 = -25360/2187, a53 = 64448/6561, a54 = -212/729
       a61 = 9017/3168,   a62 = -355/33,   a63 = 46732/5247,  a64 = 49/176, a65 = -5103/18656
       b  = [35/384, 0, 500/1113, 125/192, -2187/6784, 11/84, 0]       (5th order)
-      b* = [5179/57600, 0, 7571/57600, 393/640, -92097/339200, 187/2100, 1/40]  (4th order, for error)
+      b* = [5179/57600, 0, 7571/16695, 393/640, -92097/339200, 187/2100, 1/40]  (4th order, for error)
 
     Note: stages k1-k6 plus k7=k1(next) in the FSAL property (first-same-as-last).
     For simplicity we do not exploit FSAL here — one extra call per step.
@@ -159,7 +159,7 @@ class DopRK45Sampler:
     # 4th-order embedded solution weights (for error estimate)
     _e1, _e3, _e4, _e5, _e6, _e7 = (
         5179/57600 - 35/384,
-        7571/57600 - 500/1113,
+        7571/16695 - 500/1113,   # was 7571/57600 (typo): weights did not sum to 0, error estimate was O(dt)
         393/640   - 125/192,
         -92097/339200 - (-2187/6784),
         187/2100  - 11/84,

@@ -1,0 +1,39 @@
+# SI-schedules study: schedule = trig, base = ulr
+#   schedule: trigonometric (GVP): alpha=cos(pi t/2), beta=sin(pi t/2), gamma=0
+#   base:     x0 = bicubic(LR) + sigma*zeta (paired base = bicubic upscale; previous task 2)
+#
+# Every key except si_process / si_schedule / si_base is byte-identical to the previous run's
+# configs/stochastic_interpolant/si_opt_a_sigma010_encbase_temp.yml (task 12): same frozen encoder
+# (fno_ablation/enc_rrdb), same implicit 64-channel encoder conditioning at every network evaluation
+# (as DiffusionSR), same data, harness and hyperparameters. Solver and eps are SAMPLING parameters and
+# are not set here: one training run covers all 16 (solver, eps) evaluations.
+#
+# Train with slurm/si_schedules/01_train_array.sh (it passes --force_enc_dir, --ckpt_artifact and
+# --wandb_run_id; --force_enc_dir is mandatory, or a fresh encoder would be trained).
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+residual_flag: false
+normalize_method: "standardize"
+schedule: "linear"          # DDPM beta-schedule name, unused by the interpolant (kept for parity)
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 2e-4
+use_pretrained: False
+loss_type: "l2"
+fm_timescale: 1000.0
+ema_decay: 0.999
+grad_clip: 1.0
+p_flip: 0.2
+ckpt_every: 5
+fields: "temperature"
+encoding: True
+conditioning: "implicit"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"
+si_sigma: 0.1
+si_gamma_c: 0.0
+si_cond: "enc_implicit"
+si_process: "scheduled"
+si_schedule: "trig"
+si_base: "ulr"

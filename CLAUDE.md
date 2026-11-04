@@ -89,6 +89,18 @@ Given trained checkpoints, `analysis_functions.py` provides `load_diffusion`/`lo
 
 `FlowMatchingModel.batch_sample()` is API-compatible with `DiffusionModel.batch_sample()` — existing analysis code works with both classes interchangeably; pass `sampler='euler'` for flow matching (only supported sampler; others raise `NotImplementedError`).
 
+### SI-schedules study (`si_process: scheduled`)
+
+Paired-coupling stochastic interpolant with a selectable schedule (`runners/si_schedules.py`: linear/FM, trig/GVP,
+VP diffusion, Brownian bridge), dual-head U-Net (velocity part `v̂` + denoiser `η̂`; `b = v̂ + Γ̇η̂`, score `-η̂/Γ`), and
+solvers in `analysis/si_solvers.py` (Euler/EM, Heun/stochastic Heun, RK4, Dopri5; `ε_t = ε·Γ_t²`). Model:
+`runners/train_si_schedules.py: ScheduledInterpolantModel` (a `CoupledInterpolantModel` subclass; same harness, same
+per-step encoder conditioning as DiffusionSR). Configs `configs/si_schedules/`, jobs `slurm/si_schedules/`
+(`arms.sh` is the single index map; run `00_smoke.sh` first), eval `analysis/evaluate_si_schedules.py`, results
+`notebooks/22_si_schedules_results.ipynb`. W&B: deterministic run ids and ONE single-version artifact per training
+config (`<config>_ckpt`) and per eval config (`<config>__<solver>_eps<eps>_eval_predictions`), via
+`utils.log_single_version_artifact` (commit new version, then delete the rest). Math gates: `tests/test_si_schedules.py`.
+
 ### Preprocessing (`diffusionsr/datasets/preprocessing/*.ipynb`)
 
 Notebooks that build the paired LR/HR dataset from raw FLOW-3D simulation output (not needed if using the pre-built dataset from `download_data.sh`).

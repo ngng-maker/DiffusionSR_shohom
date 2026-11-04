@@ -42,6 +42,13 @@ def parse_args_and_config():
     parser.add_argument('--resume_from_wandb', type=str, default='',
                         help="W&B run name to restore 'latest' checkpoint artifact from "
                              "(used when local ckpt.pth is absent after SLURM preemption)")
+    # SI-schedules study: one deterministic W&B run and ONE single-version checkpoint artifact per config.
+    parser.add_argument('--ckpt_artifact', type=str, default='',
+                        help="W&B artifact holding this config's only checkpoint version; restored when "
+                             "--force_run_dir has no ckpt.pth, and overwritten on every sync "
+                             "(si_process: scheduled only)")
+    parser.add_argument('--wandb_run_id', type=str, default='',
+                        help="Deterministic W&B run id, resumed with resume='allow' (si_process: scheduled)")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Override the epochs value in the config (useful for pilot runs)")
     args = parser.parse_args()
@@ -107,6 +114,16 @@ if args.force_run_dir and args.resume_from_wandb and not restart:
     _wandb_entity = os.getenv("WANDB_ENTITY", "")
     if _restore_ckpt(_wandb_entity, "Flow3D_SuperResolution",
                      args.resume_from_wandb, args.force_run_dir):
+        restart = True
+        restart_dir = args.force_run_dir
+
+# Single-artifact fallback (SI-schedules study): the run directory is gone or empty (new cluster,
+# cleared scratch), so rebuild it from the config's one checkpoint artifact, loss history included.
+if args.force_run_dir and args.ckpt_artifact and not restart:
+    from diffusionsr.utils import restore_single_version_artifact
+    if restore_single_version_artifact(os.getenv("WANDB_ENTITY", ""), "Flow3D_SuperResolution",
+                                       args.ckpt_artifact, args.force_run_dir) \
+            and os.path.exists(os.path.join(args.force_run_dir, 'ckpt.pth')):
         restart = True
         restart_dir = args.force_run_dir
 
@@ -489,8 +506,16 @@ if modeltype == 'coupled':
         from diffusionsr.runners.train_ddpm_matched import DDPMMatchedHarnessModel as _SIModelClass
     elif si_process == 'interpolant':
         from diffusionsr.runners.train_coupled import CoupledInterpolantModel as _SIModelClass
+    elif si_process == 'scheduled':
+        # Selectable interpolant schedule + dual head (SI-schedules study, configs/si_schedules/).
+        from diffusionsr.runners.train_si_schedules import ScheduledInterpolantModel as _SIModelClass
     else:
-        raise ValueError(f"si_process must be 'interpolant' or 'ddpm', got {si_process!r}")
+        raise ValueError(f"si_process must be 'interpolant', 'scheduled' or 'ddpm', got {si_process!r}")
+    _extra_si_kwargs = {}
+    if si_process == 'scheduled':
+        _extra_si_kwargs = dict(si_schedule=str(getattr(new_config, 'si_schedule', 'linear')),
+                                ckpt_artifact=args.ckpt_artifact or None,
+                                wandb_run_id=args.wandb_run_id or None)
 
     si_sigma     = float(getattr(new_config, 'si_sigma',     0.1))
     si_gamma_c   = float(getattr(new_config, 'si_gamma_c',   0.0))
@@ -565,6 +590,7 @@ if modeltype == 'coupled':
         fm_timescale=fm_timescale,
         ema_decay=ema_decay,
         grad_clip=grad_clip,
+        **_extra_si_kwargs,
     )
     coupled_model.train(
         ckpt_every=ckpt_every,
