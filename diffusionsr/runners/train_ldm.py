@@ -146,7 +146,11 @@ class LDMModel(DiffusionModel):
       - U-Net channel count = LATENT_CH (4), image_size = HR_size // 4.
     """
 
-    def __init__(self, vae_folder, *args, **kwargs):
+    def __init__(self, vae_folder, *args, latent_unet_dim=None, latent_unet_mults=(1,), **kwargs):
+        # Latent U-Net width/levels. None/(1,) = the original ablation-v2 size (dim = latent side, ~73k params).
+        # Only single-level mults are safe at 15x15: a stride-2 downsample gives 8x8, which upsamples to 16x16.
+        self.latent_unet_dim = latent_unet_dim
+        self.latent_unet_mults = tuple(latent_unet_mults)
         # Override channel count and U-Net dim to match latent space dimensions
         # (set before super().__init__() builds the U-Net)
         kwargs['channels_override'] = LATENT_CH
@@ -187,12 +191,15 @@ class LDMModel(DiffusionModel):
         self.image_size = latent_image_size
         # dim must be even: SinusoidalPositionEmbeddings outputs 2*(dim//2) dims
         unet_dim = latent_image_size if latent_image_size % 2 == 0 else latent_image_size + 1
+        if self.latent_unet_dim is not None:
+            unet_dim = int(self.latent_unet_dim)
+            assert unet_dim % 2 == 0, 'latent_unet_dim must be even'
         self.model = Unet(
             dim=unet_dim,
             channels=LATENT_CH,
-            init_dim=LATENT_CH,
+            init_dim=LATENT_CH,  # implicit conditioning adds the 4-channel latent after the first conv
             encoder_flag=self.encoding,
-            dim_mults=(1,),
+            dim_mults=self.latent_unet_mults,
             conditioning=self.conditioning,
             out_dim=LATENT_CH,
         ).to(self.device)

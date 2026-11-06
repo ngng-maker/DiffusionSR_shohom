@@ -156,6 +156,8 @@ class DiffusionModel():
                  epoch_subsample_frac = None,
                  encoder_type = 'rrdb',
                  encoder_kwargs = None,
+                 seed = 0,
+                 encoder_normalize = None,
                  ):
 
         self.results_folder = results_folder
@@ -177,7 +179,13 @@ class DiffusionModel():
         self.encoder_kwargs = dict(encoder_kwargs or {})
         self.image_size = image_size_override if image_size_override is not None else self.train_dataset.img_shape
         self.device = device
-        torch.manual_seed(0)
+        # Normalisation the frozen encoder was TRAINED with. None = same as the dataset (every pre-existing
+        # config). Set it to pair a diffusion model with an encoder trained under the other normalisation
+        # (ablation v2 encoder-swap test): the LR input is re-normalised into the encoder's units first.
+        self.encoder_normalize = encoder_normalize
+        # seed=0 reproduces every pre-existing run; other values give repeat-seed runs (U-Net init, batch order).
+        self.seed = int(seed)
+        torch.manual_seed(self.seed)
         self.results_folder = Path(self.results_folder)
         self.results_folder.mkdir(parents=True, exist_ok=True)
         if channels_override is not None:
@@ -290,14 +298,33 @@ class DiffusionModel():
     def compute_x_e(self, true_lr, upscaled_lr):
         """Return the conditioning tensor from LR input. Override in subclasses."""
         if self.encoding:
-            return forwardpass(self.lr_enc, true_lr.to(self.device).float(),
-                               factor=self.train_dataset.factor, output=self.enc_output,
-                               transform_rescale=self.transform_rescale,
-                               dataset=self.train_dataset)
+            return self.encode_lr(true_lr, output=self.enc_output)
         elif self.conditioning == 'none':
             return None
         else:
             return upscaled_lr.to(self.device).float()
+
+    def encode_lr(self, true_lr, output):
+        """Run the frozen encoder on a (dataset-normalised) LR batch.
+
+        With encoder_normalize set and different from the dataset's normalisation, the LR is converted to
+        the encoder's units before the forward pass and, for output=True, the HR estimate is converted
+        back to the dataset's units. Intermediate features (output=False) have no physical units."""
+        ds = self.train_dataset
+        x = true_lr.to(self.device).float()
+        swap = self.encoder_normalize is not None and self.encoder_normalize != ds.normalize
+        if swap:
+            if self.transform_rescale:
+                raise NotImplementedError('encoder_normalize with transform_rescale')
+            phys = ds.unscale_data(x, input_type='lr', maintain_torch=True)
+            x = ds.rescale_data(phys, input_type='lr', normalize=self.encoder_normalize,
+                                maintain_torch=True).float()
+        out = forwardpass(self.lr_enc, x, factor=ds.factor, output=output,
+                          transform_rescale=self.transform_rescale, dataset=ds)
+        if swap and output:
+            phys = ds.unscale_data(out, input_type='hr', normalize=self.encoder_normalize, maintain_torch=True)
+            out = ds.rescale_data(phys, input_type='hr', maintain_torch=True).float()
+        return out
 
     def prepare_batch(self, batch):
         """Return the batch tensor to use for loss computation. Override in subclasses."""

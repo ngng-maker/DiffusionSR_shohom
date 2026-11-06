@@ -153,6 +153,12 @@ learning_rate = float(new_config.learning_rate)
 loss_type = getattr(new_config, 'loss_type', 'huber')
 out_steps = getattr(new_config, 'out_steps', None)
 transform_rescale = getattr(new_config, 'transform_rescale', False)
+# Ablation-v2 follow-ups. Defaults reproduce every earlier run: seed 0, encoder normalised like the data,
+# original latent U-Net size.
+seed = int(getattr(new_config, 'seed', 0))
+encoder_normalize = getattr(new_config, 'encoder_normalize', None)
+latent_unet_dim = getattr(new_config, 'latent_unet_dim', None)
+latent_unet_mults = tuple(getattr(new_config, 'latent_unet_mults', None) or (1,))
 
 # Datasets
 train_dataset = SimulationXZDataset(downscale_method=downscale_method,
@@ -305,6 +311,8 @@ if modeltype == 'diffusion':
         transform_rescale=transform_rescale,
         encoder_type=encoder_type,
         encoder_kwargs=encoder_kwargs,
+        seed=seed,
+        encoder_normalize=encoder_normalize,
     )
     diffusion_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                           batch_size=batch_size, learning_rate=learning_rate,
@@ -362,6 +370,8 @@ if modeltype == 'flow_matching':
         fm_timescale=fm_timescale,
         encoder_type=encoder_type,
         encoder_kwargs=encoder_kwargs,
+        seed=seed,
+        encoder_normalize=encoder_normalize,
     )
     fm_model.train(epochs=epochs, restart=restart, restart_dir=restart_dir,
                    batch_size=batch_size, learning_rate=learning_rate,
@@ -474,6 +484,9 @@ if modeltype == 'ldm':
         out_steps=out_steps,
         encoder_type=encoder_type,
         encoder_kwargs=encoder_kwargs,
+        seed=seed,
+        latent_unet_dim=latent_unet_dim,
+        latent_unet_mults=latent_unet_mults,
     )
     # Offset DDPM W&B step counter by the number of VAE epochs so the two
     # training phases don't overlap on the same x-axis.
