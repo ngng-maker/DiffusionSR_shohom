@@ -54,7 +54,26 @@ NAME=${NAMES[$TASK]}
 case $NAME in ldm_*) MODELTYPE=ldm ;; *) MODELTYPE=diffusion ;; esac
 CFG="diffusionsr/configs/ablation_v2/$NAME.yml"
 
-echo "=== Task $TASK: $NAME (modeltype=$MODELTYPE) ==="
+# Every v2 run trained its own encoder into <run>/encoder (use_pretrained: false). Encoder source per task:
+#   encswap : the encoder of the DiffusionSR run with the same field and the OTHER normalisation
+#   bigunet : the encoder of the matching ldm_enc run, so only the latent U-Net changes
+#   seed1   : none -- a fresh encoder is trained, i.e. a full repeat of the pipeline
+case $NAME in
+  diffusion_encswap_temp_std)   ENC_SRC=diffusion_enc_temp_gstd ;;
+  diffusion_encswap_temp_gstd)  ENC_SRC=diffusion_enc_temp_std ;;
+  diffusion_encswap_multi_std)  ENC_SRC=diffusion_enc_multi_gstd ;;
+  diffusion_encswap_multi_gstd) ENC_SRC=diffusion_enc_multi_std ;;
+  ldm_bigunet_*)                ENC_SRC=ldm_enc_${NAME#ldm_bigunet_} ;;
+  *)                            ENC_SRC= ;;
+esac
+ENC_DIR="$RUNS/$NAME/encoder"
+if [[ -n $ENC_SRC && ! -f $ENC_DIR/bestmodel_saved.pth ]]; then
+  mkdir -p "$ENC_DIR"
+  cp "$RUNS/$ENC_SRC/encoder/bestmodel_saved.pth" "$RUNS/$ENC_SRC/encoder/configuration.yml" "$ENC_DIR/"
+  echo "$ENC_SRC" > "$ENC_DIR/copied_from.txt"
+fi
+
+echo "=== Task $TASK: $NAME (modeltype=$MODELTYPE, encoder from ${ENC_SRC:-new training}) ==="
 test -f "$CFG" || { echo "missing $CFG"; exit 1; }
 
 # Requeue before the time limit (same pattern as slurm/interpolant/01_train_array.sh): train_srdiff
@@ -74,6 +93,7 @@ python -m diffusionsr.runners.train_srdiff \
   --gpu            0 \
   --modeltype      "$MODELTYPE" \
   --force_run_dir  "$RUNS/$NAME" \
+  --force_enc_dir  "$ENC_DIR" \
   --wandb_run_name "$NAME" \
   --resume_from_wandb "$NAME" &
 PY_PID=$!
