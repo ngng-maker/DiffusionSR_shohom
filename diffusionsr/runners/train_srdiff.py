@@ -245,11 +245,22 @@ if modeltype == 'mobilenet':
 
 # ── SHARED: encoder training helper ───────────────────────────────────────────
 def _run_or_skip_encoder(enc_dir):
-    """Train encoder unless bestmodel_saved.pth already exists (prior run completed)."""
+    """Train encoder unless it already finished.
+
+    bestmodel_saved.pth is written whenever the validation loss improves, so it also exists after a
+    preemption part-way through encoder training. Finished means bestmodel_saved.pth exists and either
+    there is no encoder_ckpt.pth (copied or pre-checkpointing encoder) or the checkpoint is at the last
+    epoch; otherwise pretrain_encoder resumes from encoder_ckpt.pth."""
     os.makedirs(enc_dir, exist_ok=True)
-    if os.path.exists(os.path.join(enc_dir, 'bestmodel_saved.pth')):
-        print(f"Encoder already trained at {enc_dir} — skipping encoder stage.")
-        return
+    best = os.path.join(enc_dir, 'bestmodel_saved.pth')
+    ckpt = os.path.join(enc_dir, 'encoder_ckpt.pth')
+    n_epochs = int(combined_dict['epochs']) if 'epochs' in combined_dict else 250
+    if os.path.exists(best):
+        last = torch.load(ckpt, map_location='cpu')['epoch'] if os.path.exists(ckpt) else None
+        if last is None or last + 1 >= n_epochs:
+            print(f"Encoder already trained at {enc_dir} — skipping encoder stage.")
+            return
+        print(f"Encoder at {enc_dir} stopped after epoch {last} of {n_epochs} — resuming encoder stage.")
     shutil.copy(config_path, os.path.join(enc_dir, 'configuration.yml'))
     pretrain_encoder(enc_dir,
                      train_dataset=train_dataset,
