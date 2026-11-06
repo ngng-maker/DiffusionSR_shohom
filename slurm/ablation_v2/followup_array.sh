@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-9
+#SBATCH --array=0-10
 #SBATCH --output=logs/ablation_v2/followup_%a_%j.log
 #SBATCH --error=logs/ablation_v2/followup_%a_%j.err
 #SBATCH --requeue
@@ -47,7 +47,7 @@ conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
 NAMES=(diffusion_encswap_temp_std diffusion_encswap_temp_gstd diffusion_encswap_multi_std diffusion_encswap_multi_gstd
        diffusion_seed1_temp_std diffusion_seed1_temp_gstd diffusion_seed1_multi_std diffusion_seed1_multi_gstd
-       ldm_bigunet_temp_std ldm_bigunet_multi_std)
+       ldm_bigunet_temp_std ldm_bigunet_multi_std diffusion_retrain_temp_std)
 
 TASK=${SLURM_ARRAY_TASK_ID:?run as a SLURM array task}
 NAME=${NAMES[$TASK]}
@@ -58,18 +58,22 @@ CFG="diffusionsr/configs/ablation_v2/$NAME.yml"
 #   encswap : the encoder of the DiffusionSR run with the same field and the OTHER normalisation
 #   bigunet : the encoder of the matching ldm_enc run, so only the latent U-Net changes
 #   seed1   : none -- a fresh encoder is trained, i.e. a full repeat of the pipeline
+#   retrain : the original diffusion_enc_temp_std encoder INCLUDING encoder_ckpt.pth, so the encoder
+#             resumes from epoch 6 to 600 (it was cut short by the encoder-skip bug, fixed in 2f4bd5e)
 case $NAME in
   diffusion_encswap_temp_std)   ENC_SRC=diffusion_enc_temp_gstd ;;
   diffusion_encswap_temp_gstd)  ENC_SRC=diffusion_enc_temp_std ;;
   diffusion_encswap_multi_std)  ENC_SRC=diffusion_enc_multi_gstd ;;
   diffusion_encswap_multi_gstd) ENC_SRC=diffusion_enc_multi_std ;;
   ldm_bigunet_*)                ENC_SRC=ldm_enc_${NAME#ldm_bigunet_} ;;
+  diffusion_retrain_temp_std)   ENC_SRC=diffusion_enc_temp_std ;;
   *)                            ENC_SRC= ;;
 esac
 ENC_DIR="$RUNS/$NAME/encoder"
 if [[ -n $ENC_SRC && ! -f $ENC_DIR/bestmodel_saved.pth ]]; then
   mkdir -p "$ENC_DIR"
   cp "$RUNS/$ENC_SRC/encoder/bestmodel_saved.pth" "$RUNS/$ENC_SRC/encoder/configuration.yml" "$ENC_DIR/"
+  [[ $NAME == diffusion_retrain_* ]] && cp "$RUNS/$ENC_SRC/encoder/encoder_ckpt.pth" "$ENC_DIR/"
   echo "$ENC_SRC" > "$ENC_DIR/copied_from.txt"
 fi
 
