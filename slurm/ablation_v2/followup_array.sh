@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --array=0-10
+#SBATCH --array=0-14
 #SBATCH --output=logs/ablation_v2/followup_%a_%j.log
 #SBATCH --error=logs/ablation_v2/followup_%a_%j.err
 #SBATCH --requeue
@@ -19,7 +19,8 @@
 #   encswap : DiffusionSR with the encoder trained under the OTHER normalisation (encoder_normalize), to test
 #             whether the field x normalisation interaction comes from encoder quality rather than the
 #             field or normalisation themselves.
-#   seed1   : DiffusionSR repeat runs with seed 1, to measure training-seed noise.
+#   seed1   : DiffusionSR and Flow-Matching repeat runs with seed 1, to measure training-seed noise.
+#   retrain : diffusion_enc_temp_std with its encoder trained to 600 epochs (it stopped after 6).
 #   bigunet : LDM with a 192-wide latent U-Net (~7.5M params vs 73k), to test the "U-Net too small" explanation.
 # Same command line as the v2 runs, so each resumes from <run_dir>/ckpt.pth and its W&B run when requeued.
 #
@@ -30,6 +31,8 @@
 #   0-3  diffusion_encswap_{temp_std,temp_gstd,multi_std,multi_gstd}
 #   4-7  diffusion_seed1_{temp_std,temp_gstd,multi_std,multi_gstd}
 #   8-9  ldm_bigunet_{temp_std,multi_std}
+#   10   diffusion_retrain_temp_std
+#   11-14 fm_seed1_{temp_std,temp_gstd,multi_std,multi_gstd}
 
 set -eo pipefail
 
@@ -47,17 +50,18 @@ conda activate /trace/group/forgelab/ngng/envs/diffusion_SR
 
 NAMES=(diffusion_encswap_temp_std diffusion_encswap_temp_gstd diffusion_encswap_multi_std diffusion_encswap_multi_gstd
        diffusion_seed1_temp_std diffusion_seed1_temp_gstd diffusion_seed1_multi_std diffusion_seed1_multi_gstd
-       ldm_bigunet_temp_std ldm_bigunet_multi_std diffusion_retrain_temp_std)
+       ldm_bigunet_temp_std ldm_bigunet_multi_std diffusion_retrain_temp_std
+       fm_seed1_temp_std fm_seed1_temp_gstd fm_seed1_multi_std fm_seed1_multi_gstd)
 
 TASK=${SLURM_ARRAY_TASK_ID:?run as a SLURM array task}
 NAME=${NAMES[$TASK]}
-case $NAME in ldm_*) MODELTYPE=ldm ;; *) MODELTYPE=diffusion ;; esac
+case $NAME in ldm_*) MODELTYPE=ldm ;; fm_*) MODELTYPE=flow_matching ;; *) MODELTYPE=diffusion ;; esac
 CFG="diffusionsr/configs/ablation_v2/$NAME.yml"
 
 # Every v2 run trained its own encoder into <run>/encoder (use_pretrained: false). Encoder source per task:
 #   encswap : the encoder of the DiffusionSR run with the same field and the OTHER normalisation
 #   bigunet : the encoder of the matching ldm_enc run, so only the latent U-Net changes
-#   seed1   : none -- a fresh encoder is trained, i.e. a full repeat of the pipeline
+#   seed1   : none -- a fresh encoder is trained, i.e. a full repeat of the pipeline (DiffusionSR and FM)
 #   retrain : the original diffusion_enc_temp_std encoder INCLUDING encoder_ckpt.pth, so the encoder
 #             resumes from epoch 6 to 600 (it was cut short by the encoder-skip bug, fixed in 2f4bd5e)
 case $NAME in
