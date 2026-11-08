@@ -53,14 +53,16 @@ CKPT_FILES = ('ckpt.pth', 'bestmodel_saved.pth', 'loss_epoch.txt', 'validation_l
 
 class ScheduledInterpolantModel(CoupledInterpolantModel):
 
-    def __init__(self, *args, si_schedule: str = 'linear', ckpt_artifact: str | None = None,
-                 wandb_run_id: str | None = None, **kwargs):
+    def __init__(self, *args, si_schedule: str = 'linear', si_gamma_scale: float = 0.0,
+                 ckpt_artifact: str | None = None, wandb_run_id: str | None = None, **kwargs):
         # gamma_c is the previous experiment's Option-B knob; the schedule now owns gamma_t. Forcing 0
         # stops the parent building its own dual head, so the one below is the only U-Net rebuild.
         kwargs['gamma_c'] = 0.0
         super().__init__(*args, **kwargs)
         self.si_schedule_name = si_schedule
-        self.si_sched = get_schedule(si_schedule)   # NOT self.schedule: that is DDPM's beta-schedule name
+        self.si_gamma_scale = float(si_gamma_scale)
+        # NOT self.schedule: that is DDPM's beta-schedule name
+        self.si_sched = get_schedule(si_schedule, self.si_gamma_scale)
         self.ckpt_artifact = ckpt_artifact
         self.wandb_run_id = wandb_run_id
         self.last_nfe = None
@@ -135,13 +137,15 @@ class ScheduledInterpolantModel(CoupledInterpolantModel):
     def _wandb_init(self, wandb_project, wandb_entity, wandb_run_name, cfg):
         if not self.wandb_run_id:
             return super()._wandb_init(wandb_project, wandb_entity, wandb_run_name, cfg)
-        cfg = dict(cfg, si_schedule=self.si_schedule_name, ckpt_artifact=self.ckpt_artifact)
+        cfg = dict(cfg, si_schedule=self.si_schedule_name, si_gamma_scale=self.si_gamma_scale,
+                   ckpt_artifact=self.ckpt_artifact)
         # resume='allow': creates the run on the first launch and resumes the SAME run after any
         # preemption/requeue on any cluster, whether or not the local run directory survived.
+        # SI_WANDB_GROUP: 'si_schedules' (default) or 'si_noise', set by each study's slurm scripts.
         wandb.init(id=self.wandb_run_id, resume='allow', project=wandb_project,
                    entity=wandb_entity or os.getenv('WANDB_ENTITY', ''),
-                   name=wandb_run_name or self.wandb_run_id, group='si_schedules', job_type='train',
-                   config=cfg)
+                   name=wandb_run_name or self.wandb_run_id,
+                   group=os.getenv('SI_WANDB_GROUP', 'si_schedules'), job_type='train', config=cfg)
         with open(self.results_folder / 'wandb_run_id.txt', 'w') as f:
             f.write(wandb.run.id)
 
@@ -150,7 +154,7 @@ class ScheduledInterpolantModel(CoupledInterpolantModel):
         log_single_version_artifact(
             self.ckpt_artifact, 'checkpoint', files,
             metadata={'epoch': int(epoch), 'final': bool(final), 'si_schedule': self.si_schedule_name,
-                      'si_base': self.si_base, 'sigma': self.sigma},
+                      'si_gamma_scale': self.si_gamma_scale, 'si_base': self.si_base, 'sigma': self.sigma},
             description=f'Resumable training state for {self.ckpt_artifact} (single version)')
 
     def _sync_checkpoints(self, epoch, ckpt_path, best_path):

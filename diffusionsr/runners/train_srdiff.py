@@ -538,6 +538,7 @@ if modeltype == 'coupled':
     _extra_si_kwargs = {}
     if si_process == 'scheduled':
         _extra_si_kwargs = dict(si_schedule=str(getattr(new_config, 'si_schedule', 'linear')),
+                                si_gamma_scale=float(getattr(new_config, 'si_gamma_scale', 0.0)),
                                 ckpt_artifact=args.ckpt_artifact or None,
                                 wandb_run_id=args.wandb_run_id or None)
 

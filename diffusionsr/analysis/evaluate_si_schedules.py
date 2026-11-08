@@ -70,6 +70,7 @@ def build_model(args, cfg, device):
         encoding=bool(cfg.get('encoding', True)), conditioning=cfg.get('conditioning', 'implicit'),
         sigma=float(cfg['si_sigma']), si_cond=cfg.get('si_cond', 'enc_implicit'),
         si_base=cfg.get('si_base', 'enc'), si_schedule=cfg['si_schedule'],
+        si_gamma_scale=float(cfg.get('si_gamma_scale', 0.0)),
         fm_timescale=float(cfg.get('fm_timescale', 1000.0)),
         image_size_override=unet_dim, enc_output=False, device=device)
     state = ckpt[5] if args.weights == 'ema' else ckpt[0]
@@ -156,12 +157,67 @@ def ensemble_spread(preds, gts, ch: int = 0, threshold: float = 1900.0, chunk: i
     return {'spread_all_px_K': tot / sd[0].size / N, 'spread_melt_px_K': tot_mp / max(n_mp, 1)}
 
 
+def _sorted_pair_weights(K: int) -> np.ndarray:
+    """w_j = 2j - K + 1 (j = 0..K-1): sum_{k<j} |x_(j) - x_(k)| = sum_j w_j x_(j) for sorted x."""
+    return (2.0 * np.arange(K) - K + 1).astype(np.float64)
+
+
+def ensemble_skill(preds, gts, ch: int = 0, threshold: float = 1900.0, chunk: int = 128,
+                   seed: int = 0) -> dict:
+    """Ensemble-verification scores, added for the SI-noise study (all in physical units, K).
+
+    Computed over ALL pixels and over the GROUND-TRUTH melt pool (T > 1900 K), as ensemble_spread is.
+
+    crps_*_K      fair CRPS (Ferro 2014): mean_k |x_k - y| - sum_{k != j} |x_k - x_j| / (2 K (K - 1)).
+                  A proper score: lowest only when the predictive distribution matches the truth's, so
+                  noise that is mostly error raises it (unlike calibration_2sigma). Unbiased for finite K.
+                  K = 1 (a point prediction): CRPS = MAE.
+    ssr_*         spread-skill ratio sqrt((K+1)/K) * sqrt(mean ensemble variance (ddof 1)) / RMSE of the
+                  ensemble mean (Fortin et al. 2014). 1 = spread matches error; < 1 under-dispersed.
+    rank_hist_*   counts of the truth's rank among the K members (K + 1 bins; ties broken at random).
+                  Flat = consistent; U-shape = under-dispersed; hump = over-dispersed.
+    """
+    N, K = preds.shape[:2]
+    w = _sorted_pair_weights(K)
+    rng = np.random.default_rng(seed)
+    acc = {r: dict(crps=0.0, var=0.0, se=0.0, n=0, hist=np.zeros(K + 1, np.int64)) for r in ('all', 'melt')}
+    for s in range(0, N, chunk):
+        x = np.asarray(preds[s:s + chunk, :, ch], dtype=np.float64)            # (n, K, H, W)
+        y = np.asarray(gts[s:s + chunk, ch], dtype=np.float64)                 # (n, H, W)
+        mae_term = np.abs(x - y[:, None]).mean(axis=1)
+        if K > 1:
+            xs = np.sort(x, axis=1)
+            pair = np.tensordot(w, xs, axes=(0, 1))                            # sum_{k<j} |x_j - x_k|
+            crps = mae_term - pair / (K * (K - 1))
+            var = x.var(axis=1, ddof=1)
+        else:
+            crps, var = mae_term, np.zeros_like(y)
+        se = (x.mean(axis=1) - y) ** 2
+        below = (x < y[:, None]).sum(axis=1)
+        ties = (x == y[:, None]).sum(axis=1)
+        rank = below + np.floor(rng.random(y.shape) * (ties + 1)).astype(np.int64)
+        mask = y > threshold
+        for r, sel in (('all', np.ones_like(mask)), ('melt', mask)):
+            a = acc[r]
+            a['crps'] += float(crps[sel].sum()); a['var'] += float(var[sel].sum())
+            a['se'] += float(se[sel].sum()); a['n'] += int(sel.sum())
+            a['hist'] += np.bincount(rank[sel], minlength=K + 1)
+    out = {}
+    for r, a in acc.items():
+        n = max(a['n'], 1)
+        rmse = (a['se'] / n) ** 0.5
+        out[f'crps_{r}_K'] = a['crps'] / n
+        out[f'ssr_{r}'] = (((K + 1) / K) ** 0.5 * (a['var'] / n) ** 0.5 / rmse) if (K > 1 and rmse > 0) else float('nan')
+        out[f'rank_hist_{r}'] = a['hist'].tolist()
+    return out
+
+
 def upload(args, json_path, npz_path, overlay_path, results):
     import wandb
     from diffusionsr.utils import log_single_version_artifact, wandb_safe_id
     run = wandb.init(id=wandb_safe_id(f'{args.eval_name}-{args.run_tag}'), resume='allow',
                      project=args.wandb_project, entity=args.wandb_entity or None,
-                     name=args.eval_name, group='si_schedules', job_type='eval',
+                     name=args.eval_name, group=os.getenv('SI_WANDB_GROUP', 'si_schedules'), job_type='eval',
                      config=dict(train_name=args.train_name, solver=args.solver, eps=args.eps,
                                  n_steps=args.n_steps, k_samples=args.k_samples, weights=args.weights))
     run.summary.update({k: v for k, v in results.items() if isinstance(v, (int, float, str))})
@@ -225,8 +281,10 @@ def main():
 
         results = compute_metrics(preds, gts, _px_um(test_ds.factor))
         results.update(ensemble_spread(preds, gts))
+        results.update(ensemble_skill(preds, gts))
         results.update(train_name=args.train_name, eval_name=args.eval_name,
-                       si_schedule=cfg['si_schedule'], si_base=cfg.get('si_base', 'enc'),
+                       si_schedule=cfg['si_schedule'], si_gamma_scale=float(cfg.get('si_gamma_scale', 0.0)),
+                       si_base=cfg.get('si_base', 'enc'),
                        sigma=float(cfg['si_sigma']), solver=args.solver, eps=args.eps,
                        n_steps=args.n_steps, nfe_per_sample=float(nfe), wall_clock_s=float(wall),
                        weights=args.weights, seed=args.seed)

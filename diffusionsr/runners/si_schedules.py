@@ -197,14 +197,53 @@ class BridgeSchedule(Schedule):
     def gamma_gamma_dot(self, t): return 1.0 - 2.0 * t
 
 
+class LinearGammaSchedule(Schedule):
+    """alpha = 1 - t, beta = t, gamma = c t (1 - t).  Linear path with a smooth latent noise ("SI-noise" study).
+
+    Why this exists: with gamma = 0 (linear, trig, VP) the only noise on the path is the base's own,
+    Gamma_t = alpha_t sigma <= sigma = 0.1, so eps_t = eps Gamma_t^2 injects almost nothing and the
+    SI-schedules study's eps sweep barely moved calibration. A latent gamma > 0 gives eps real noise to
+    scale. The bridge's gamma = sqrt(2t(1-t)) does that too, but its Gamma_dot ~ 1/sqrt(1-t) is singular at
+    t = 1 (Euler/Heun at 20 steps fail on it). gamma = c t(1-t) vanishes LINEARLY at t = 1, like alpha, so
+
+        Gamma_t = (1 - t) sqrt(sigma^2 + c^2 t^2)  and  Gamma_dot stay bounded on [0, 1].
+
+    Peak gamma is c/4 at t = 1/2 (normalised HR units): c = 0.5, 1, 2 -> 0.125, 0.25, 0.5.
+    """
+    name = 'linear_gamma'
+
+    def __init__(self, gamma_scale: float = 1.0):
+        if gamma_scale <= 0:
+            raise ValueError("linear_gamma needs gamma_scale > 0 (use 'linear' for gamma = 0)")
+        self.c = float(gamma_scale)
+        self.description = f'Linear + latent noise: alpha=1-t, beta=t, gamma={self.c:g} t(1-t)'
+
+    def alpha(self, t):           return 1.0 - t
+    def alpha_dot(self, t):       return -torch.ones_like(t)
+    def beta(self, t):            return t
+    def beta_dot(self, t):        return torch.ones_like(t)
+    def gamma_sq(self, t):        return (self.c * t * (1.0 - t)) ** 2
+    def gamma_gamma_dot(self, t): return self.c * self.c * t * (1.0 - t) * (1.0 - 2.0 * t)
+
+
+# The SI-schedules study's four fixed schedules. Parameterised schedules are listed separately so code
+# that loops over SCHEDULES (tests, notebook 22) keeps meaning exactly those four.
 SCHEDULES = {cls.name: cls for cls in (LinearSchedule, TrigSchedule, VPSchedule, BridgeSchedule)}
+PARAM_SCHEDULES = {LinearGammaSchedule.name: LinearGammaSchedule}
 
 
-def get_schedule(name: str) -> Schedule:
+def get_schedule(name: str, gamma_scale: float = 0.0) -> Schedule:
+    """Schedule by name. gamma_scale (config key si_gamma_scale) is used by 'linear_gamma' only."""
+    if name in PARAM_SCHEDULES:
+        return PARAM_SCHEDULES[name](gamma_scale)
+    if gamma_scale:
+        raise ValueError(f'si_gamma_scale={gamma_scale} is only used by {sorted(PARAM_SCHEDULES)}, '
+                         f'not by si_schedule={name!r}')
     try:
         return SCHEDULES[name]()
     except KeyError:
-        raise ValueError(f'Unknown si_schedule={name!r}; choose from {sorted(SCHEDULES)}') from None
+        raise ValueError(f'Unknown si_schedule={name!r}; choose from '
+                         f'{sorted(SCHEDULES) + sorted(PARAM_SCHEDULES)}') from None
 
 
 # ---------------------------------------------------------------------------------------------

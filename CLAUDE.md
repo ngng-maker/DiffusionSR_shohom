@@ -101,6 +101,14 @@ per-step encoder conditioning as DiffusionSR). Configs `configs/si_schedules/`, 
 config (`<config>_ckpt`) and per eval config (`<config>__<solver>_eps<eps>_eval_predictions`), via
 `utils.log_single_version_artifact` (commit new version, then delete the rest). Math gates: `tests/test_si_schedules.py`.
 
+**SI-noise follow-up** (`slurm/si_noise/`, `configs/si_noise/`, `notebooks/24_si_noise_results.ipynb`): in the
+schedules study ε barely mattered for γ = 0 schedules (Γ = ασ ≤ 0.1). This study adds `si_schedule: linear_gamma` with
+`si_gamma_scale: c` (γ_t = c·t(1−t), bounded Γ̇ at t = 1, unlike the bridge) and larger `si_sigma`, plus Phase 0: the
+existing `si_sched_linear_enc_temp` model at ε = 2–20. `arms.sh` maps all 73 eval indices (0–64 Phase 1, 65–72 Phase 0);
+W&B group `si_noise` via `SI_WANDB_GROUP`. Evals also write fair CRPS, spread–skill ratio and rank histograms
+(`evaluate_si_schedules.ensemble_skill`); `analysis/add_skill_metrics.py` back-fills them into `skill.json` for older evals
+without touching their `results.json`.
+
 ### Preprocessing (`diffusionsr/datasets/preprocessing/*.ipynb`)
 
 Notebooks that build the paired LR/HR dataset from raw FLOW-3D simulation output (not needed if using the pre-built dataset from `download_data.sh`).

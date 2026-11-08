@@ -1,0 +1,40 @@
+# SI-noise study (follow-up to SI-schedules): si_noise_g1_enc_temp
+#   path:  linear, alpha=1-t, beta=t, gamma = 1 t(1-t)    (peak 0.25)
+#   base:  x0 = enc(LR) + sigma*zeta
+#
+# Every key except si_schedule / si_sigma / si_gamma_scale is identical to
+# configs/si_schedules/si_sched_linear_enc_temp.yml (the SI-schedules study's most accurate arm): same
+# frozen encoder, same implicit encoder conditioning at every network evaluation, same data, harness and
+# hyperparameters. Why: in that study eps barely changed linear/trig/VP, because with gamma = 0 the path's
+# only noise is Gamma_t = alpha_t sigma <= 0.1. These arms give eps real noise to scale, either a latent
+# gamma_t = c t(1-t) (runners/si_schedules.py: LinearGammaSchedule) or a larger base noise sigma.
+#
+# Train with slurm/si_noise/01_train_array.sh (it passes --force_enc_dir, --ckpt_artifact, --wandb_run_id).
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+residual_flag: false
+normalize_method: "standardize"
+schedule: "linear"          # DDPM beta-schedule name, unused by the interpolant (kept for parity)
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 2e-4
+use_pretrained: False
+loss_type: "l2"
+fm_timescale: 1000.0
+ema_decay: 0.999
+grad_clip: 1.0
+p_flip: 0.2
+ckpt_every: 5
+fields: "temperature"
+encoding: True
+conditioning: "implicit"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb"
+si_sigma: 0.1
+si_gamma_c: 0.0
+si_cond: "enc_implicit"
+si_process: "scheduled"
+si_schedule: "linear_gamma"
+si_base: "enc"
+si_gamma_scale: 1.0

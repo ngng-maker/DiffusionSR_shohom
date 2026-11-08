@@ -9,6 +9,8 @@ sqrt(2 eps) Gamma diffusion, or a broken final denoising jump each shows up as a
 
 import math
 
+import numpy as np
+
 import pytest
 import torch
 
@@ -232,3 +234,112 @@ def test_wandb_safe_id_is_deterministic_and_valid():
     a = wandb_safe_id('si_sched_bridge_ulr_temp__heun_eps0p05-v1')
     assert a == wandb_safe_id('si_sched_bridge_ulr_temp__heun_eps0p05-v1')
     assert a == 'si-sched-bridge-ulr-temp-heun-eps0p05-v1' and len(a) <= 64
+
+
+# ── SI-noise study: linear_gamma schedule, large eps, larger sigma, ensemble-skill scores ─────────
+
+GAMMA_SCALES = (0.5, 1.0, 2.0)
+
+
+@pytest.mark.parametrize('c', GAMMA_SCALES)
+def test_linear_gamma_endpoints_derivatives_and_bounded_gamma_dot(c):
+    s = get_schedule('linear_gamma', c)
+    t0, t1 = torch.tensor(0.0), torch.tensor(1.0)
+    assert float(s.gamma_sq(t0)) == 0.0 and float(s.gamma_sq(t1)) == 0.0
+    assert float(s.Gamma(t0, SIGMA)) == pytest.approx(SIGMA)
+    assert float(s.gamma_sq(torch.tensor(0.5)).sqrt()) == pytest.approx(c / 4)      # peak gamma = c/4
+    t = torch.linspace(0.02, 0.98, 49, dtype=torch.float64)
+    h = 1e-6
+    fd = lambda f: (f(t + h) - f(t - h)) / (2 * h)
+    torch.testing.assert_close(s.gamma_gamma_dot(t), 0.5 * fd(s.gamma_sq), rtol=1e-5, atol=1e-6)
+    torch.testing.assert_close(s.Gamma_dot(t, SIGMA), fd(lambda u: s.Gamma(u, SIGMA)), rtol=1e-5, atol=1e-6)
+    # Unlike the bridge, Gamma_dot stays bounded up to t = 1 (gamma vanishes linearly, like alpha).
+    tt = torch.tensor([0.99, 0.999, 0.9999], dtype=torch.float64)
+    assert float(s.Gamma_dot(tt, SIGMA).abs().max()) < 2 * (SIGMA ** 2 + c ** 2) ** 0.5
+
+
+def test_get_schedule_rejects_misplaced_gamma_scale():
+    with pytest.raises(ValueError):
+        get_schedule('linear', 1.0)
+    with pytest.raises(ValueError):
+        get_schedule('linear_gamma', 0.0)
+
+
+NOISE_CASES = ([('linear_gamma', c, SIGMA, sv, e) for c in GAMMA_SCALES for sv in SOLVERS
+                for e in ((0.0, 1.0, 5.0) if sv in SDE_SOLVERS else (0.0,))]
+               + [('linear', 0.0, sg, sv, e) for sg in (0.25, 0.5) for sv in ('euler', 'heun', 'rk4')
+                  for e in ((0.0, 5.0) if sv in SDE_SOLVERS else (0.0,))])
+
+
+@pytest.mark.parametrize('sched,c,sigma,solver,eps', NOISE_CASES)
+def test_si_noise_arms_transport_base_to_target(sched, c, sigma, solver, eps):
+    g = torch.Generator().manual_seed(1)
+    s = get_schedule(sched, c)
+    x0 = M + sigma * torch.randn(40_000, dtype=torch.float64, generator=g)
+    x1, _ = integrate(_exact_field_sigma(s, sigma), s, x0, torch.full_like(x0, M), sigma, solver=solver,
+                      n_steps=200, eps=eps, generator=g)
+    assert float(x1.mean()) == pytest.approx(MU1, abs=0.02)
+    assert float(x1.std()) == pytest.approx(S1, rel=0.03)
+
+
+@pytest.mark.parametrize('solver', SDE_SOLVERS)
+@pytest.mark.parametrize('eps', (2.0, 5.0, 10.0, 20.0))
+def test_phase0_large_eps_is_stable_at_the_experiments_20_steps(solver, eps):
+    """Phase 0 samples the existing linear model with eps up to 20 at 20 steps: no blow-up, and the
+    SDE's std is no further from the target than the eps = 0 ODE's (more eps corrects Euler's
+    20-step under-dispersion: 0.59 at eps 0 -> 0.68 at eps 20, target 0.70)."""
+    s = get_schedule('linear')
+    stds = {}
+    for e in (0.0, eps):
+        g = torch.Generator().manual_seed(1)
+        x0 = M + SIGMA * torch.randn(40_000, dtype=torch.float64, generator=g)
+        x1, _ = integrate(_exact_field(s), s, x0, torch.full_like(x0, M), SIGMA, solver=solver,
+                          n_steps=20, eps=e, generator=g)
+        assert torch.isfinite(x1).all()
+        assert float(x1.mean()) == pytest.approx(MU1, abs=0.02)
+        stds[e] = float(x1.std())
+    assert abs(stds[eps] - S1) <= abs(stds[0.0] - S1) + 0.01
+
+
+def _exact_field_sigma(schedule, sigma):
+    def field(x, t):
+        c = schedule.coeffs(torch.tensor(float(t), dtype=x.dtype), sigma)
+        mean = c['alpha'] * M + c['beta'] * MU1
+        var = c['beta'] ** 2 * S1 ** 2 + c['Gamma'] ** 2
+        return (c['alpha_dot'] * M + c['beta_dot'] * (MU1 + c['beta'] * S1 ** 2 / var * (x - mean)),
+                c['Gamma'] / var * (x - mean))
+    return field
+
+
+def _skill(pred, gt):
+    from diffusionsr.analysis.evaluate_si_schedules import ensemble_skill
+    return ensemble_skill(pred[:, :, None], gt[:, None], threshold=-1e9)   # every pixel is "melt"
+
+
+def test_ensemble_skill_on_a_consistent_ensemble():
+    """Truth and K members iid N(0, s^2): SSR = 1, flat rank histogram, and the fair CRPS equals the
+    exact expected CRPS of N(0, s^2) against y ~ N(0, s^2), which is s / sqrt(pi)."""
+    rng = np.random.default_rng(0)
+    s, N, K = 50.0, 2000, 10
+    gt = rng.normal(0, s, (N, 8, 8))
+    pred = rng.normal(0, s, (N, K, 8, 8))
+    out = _skill(pred, gt)
+    assert out['ssr_all'] == pytest.approx(1.0, abs=0.02)
+    assert out['crps_all_K'] == pytest.approx(s / math.sqrt(math.pi), rel=0.02)
+    h = np.array(out['rank_hist_all']) / sum(out['rank_hist_all'])
+    assert np.abs(h - 1 / (K + 1)).max() < 0.01
+    assert out['crps_melt_K'] == out['crps_all_K']
+
+
+def test_ensemble_skill_flags_under_dispersion_and_matches_mae_for_k1():
+    rng = np.random.default_rng(1)
+    gt = rng.normal(0, 50.0, (2000, 8, 8))
+    tight = rng.normal(0, 10.0, (2000, 10, 8, 8))           # members far too close together
+    out = _skill(tight, gt)
+    assert out['ssr_all'] < 0.3
+    h = np.array(out['rank_hist_all'])
+    assert h[0] + h[-1] > 0.6 * h.sum()                      # U-shape: truth outside the ensemble
+    point = rng.normal(0, 50.0, (2000, 1, 8, 8))
+    out1 = _skill(point, gt)
+    assert out1['crps_all_K'] == pytest.approx(float(np.abs(point[:, 0] - gt).mean()), rel=1e-9)
+    assert math.isnan(out1['ssr_all'])
