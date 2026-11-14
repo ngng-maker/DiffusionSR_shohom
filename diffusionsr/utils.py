@@ -179,10 +179,15 @@ def cleanup_old_checkpoint_versions(run_name: str, project: str = None,
     _project = project or wandb.run.project
     artifact_name = f"{run_name}_ckpt"
     try:
-        versions = list(api.artifact_versions(
+        versions = list(api.artifacts(
             'checkpoint', f'{_entity}/{_project}/{artifact_name}'))
     except Exception as e:
-        print(f'Checkpoint cleanup skipped for {artifact_name}: {e}')
+        # Training loops now sync ckpt.pth into the run's Files (sync_checkpoint_file) and never create
+        # a <run>_ckpt artifact, so W&B answers 404 for runs started after that change: nothing to prune.
+        if '404' in str(e):
+            print(f'Checkpoint cleanup: no {artifact_name} artifact (checkpoints are run files); nothing to prune.')
+        else:
+            print(f'Checkpoint cleanup skipped for {artifact_name}: {e}')
         return
     keep = {'latest', 'best'}
     deleted = failed = 0
