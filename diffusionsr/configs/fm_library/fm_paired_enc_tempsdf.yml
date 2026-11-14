@@ -1,0 +1,41 @@
+# FM-library study (Experiment 2, docs/plans/2026-11_si_multifield_fm_plan.md): fm_source = paired, fields = temperature_sdfliqlabel, OLD dataset (data_fields, 20 -> 10 um)
+#   x0 = enc(LR) + si_sigma*zeta: the SI arms' paired coupling (same start as SI linear)
+#   facebookresearch/flow_matching CondOT path + ODESolver, SINGLE velocity head (runners/train_fm_library.py).
+#
+# Every other key is copied from configs/si_schedules/si_sched_linear_enc_temp.yml (SI-FM, the comparison arm):
+# same data, U-Net, frozen-encoder implicit conditioning, harness and hyperparameters. si_schedule is unused.
+#
+# encoder_results_dir: a 2-field (temperature + sdfliqlabel), n_steps = 1 RRDB encoder on data_fields at 2x.
+# None existed on TRACE on 2026-11-14 (the ablation multi-field encoders stack n_steps = 3 or 5), so it
+# must be trained into this directory before these runs start.
+#
+# Train with slurm/fm_library/01_train_array.sh (passes --force_enc_dir from this file, --ckpt_artifact, --wandb_run_id).
+root_folder: "/trace/group/forgelab/ngng/multifield/data_fields"
+downscale_method: "direct"
+n_steps: "1"
+residual_flag: false
+normalize_method: "standardize"
+schedule: "linear"          # DDPM beta-schedule name, unused by the interpolant (kept for parity)
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 2e-4
+use_pretrained: False
+loss_type: "l2"
+fm_timescale: 1000.0
+ema_decay: 0.999
+grad_clip: 1.0
+p_flip: 0.2
+ckpt_every: 5
+fields: "temperature_sdfliqlabel"
+encoding: True
+conditioning: "implicit"
+encoder_results_dir: "/trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/encoders/enc_rrdb_tempsdf_old2x"
+si_sigma: 0.1
+si_gamma_c: 0.0
+si_cond: "enc_implicit"
+si_process: "fm_library"
+si_schedule: "linear"
+si_base: "enc"
+model_kind: "fm_library"
+fm_source: "paired"

@@ -533,12 +533,21 @@ if modeltype == 'coupled':
     elif si_process == 'scheduled':
         # Selectable interpolant schedule + dual head (SI-schedules study, configs/si_schedules/).
         from diffusionsr.runners.train_si_schedules import ScheduledInterpolantModel as _SIModelClass
+    elif si_process == 'fm_library':
+        # Standard flow matching from facebookresearch/flow_matching, single velocity head, same harness
+        # (configs/fm_library/, docs/plans/2026-11_si_multifield_fm_plan.md, Experiment 2).
+        from diffusionsr.runners.train_fm_library import FMLibraryModel as _SIModelClass
     else:
-        raise ValueError(f"si_process must be 'interpolant', 'scheduled' or 'ddpm', got {si_process!r}")
+        raise ValueError(f"si_process must be 'interpolant', 'scheduled', 'fm_library' or 'ddpm', "
+                         f"got {si_process!r}")
     _extra_si_kwargs = {}
     if si_process == 'scheduled':
         _extra_si_kwargs = dict(si_schedule=str(getattr(new_config, 'si_schedule', 'linear')),
                                 si_gamma_scale=float(getattr(new_config, 'si_gamma_scale', 0.0)),
+                                ckpt_artifact=args.ckpt_artifact or None,
+                                wandb_run_id=args.wandb_run_id or None)
+    elif si_process == 'fm_library':
+        _extra_si_kwargs = dict(fm_source=str(getattr(new_config, 'fm_source', 'paired')),
                                 ckpt_artifact=args.ckpt_artifact or None,
                                 wandb_run_id=args.wandb_run_id or None)
 
