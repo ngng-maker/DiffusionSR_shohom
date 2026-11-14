@@ -56,8 +56,12 @@ def _noise(x, generator):
 def integrate(field: Field, schedule: Schedule, x0: torch.Tensor, m: torch.Tensor, sigma: float,
               solver: str = 'heun', n_steps: int = 20, eps: float = 0.0,
               t_end: float = T_END, generator: torch.Generator | None = None,
-              rtol: float = 1e-4, atol: float = 1e-4) -> tuple[torch.Tensor, int]:
-    """Integrate from X_0 = x0 to t_end, then denoise to t = 1. Returns (x1_hat, nfe)."""
+              rtol: float = 1e-4, atol: float = 1e-4, callback=None) -> tuple[torch.Tensor, int]:
+    """Integrate from X_0 = x0 to t_end, then denoise to t = 1. Returns (x1_hat, nfe).
+
+    callback(step_index, t, x), if given, sees the state at t = 0 and after every (accepted) step; it is
+    for visualisation only (trajectory GIFs) and does not change the result or the nfe count.
+    """
     if solver not in SOLVERS:
         raise ValueError(f'Unknown solver={solver!r}; choose from {SOLVERS}')
     if eps < 0:
@@ -73,8 +77,10 @@ def integrate(field: Field, schedule: Schedule, x0: torch.Tensor, m: torch.Tenso
         return drift_and_diffusion(schedule, v, eta, t, sigma, eps)
 
     x = x0.clone()
+    if callback is not None:
+        callback(0, 0.0, x)
     if solver == 'dopri5':
-        x = _dopri5(fg, x, t_end, rtol, atol)
+        x = _dopri5(fg, x, t_end, rtol, atol, callback=callback)
     else:
         dt = t_end / n_steps
         sq = math.sqrt(dt)
@@ -95,6 +101,8 @@ def integrate(field: Field, schedule: Schedule, x0: torch.Tensor, m: torch.Tenso
                 k3, _ = fg(x + 0.5 * dt * k2, t + 0.5 * dt)
                 k4, _ = fg(x + dt * k3, t + dt)
                 x = x + dt / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
+            if callback is not None:
+                callback(i + 1, (i + 1) * dt, x)
 
     # Final denoising jump at t_end (one more network evaluation).
     _, eta = f_(x, t_end)
@@ -117,9 +125,9 @@ _E = (5179 / 57600 - 35 / 384, 0.0, 7571 / 16695 - 500 / 1113, 393 / 640 - 125 /
       -92097 / 339200 + 2187 / 6784, 187 / 2100 - 11 / 84, 1 / 40)
 
 
-def _dopri5(fg, x, t_end, rtol, atol, dt0=0.05, min_dt=1e-5, max_dt=0.5):
+def _dopri5(fg, x, t_end, rtol, atol, dt0=0.05, min_dt=1e-5, max_dt=0.5, callback=None):
     """Adaptive Dormand-Prince with FSAL; same error norm and step controller as DopRK45Sampler."""
-    t, dt = 0.0, dt0
+    t, dt, n_acc = 0.0, dt0, 0
     k1, _ = fg(x, t)
     while t < t_end - 1e-9:
         dt = max(min(dt, t_end - t, max_dt), min_dt)
@@ -134,5 +142,8 @@ def _dopri5(fg, x, t_end, rtol, atol, dt0=0.05, min_dt=1e-5, max_dt=0.5):
         err_norm = float((err / scale).pow(2).mean().sqrt())
         if err_norm <= 1.0 or dt <= min_dt:
             x, t, k1 = x5, t + dt, k7          # accept; FSAL reuses k7 as the next k1
+            n_acc += 1
+            if callback is not None:
+                callback(n_acc, t, x)
         dt = dt * max(0.1, min(10.0, 0.9 * max(err_norm, 1e-10) ** -0.2))
     return x

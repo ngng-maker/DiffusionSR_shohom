@@ -44,11 +44,19 @@ def eps_tag(eps: float) -> str:
     return 'eps' + f'{eps:g}'.replace('.', 'p')
 
 
-def eval_name_for(train_name: str, solver: str, eps: float) -> str:
-    return f'{train_name}__{solver}_{eps_tag(eps)}'
+def eval_name_for(train_name: str, solver: str, eps: float, n_steps: int = 20) -> str:
+    # 20 steps is the studies' default budget and keeps the original names; other budgets (the step-size
+    # study) get an explicit suffix.
+    return f'{train_name}__{solver}_{eps_tag(eps)}' + ('' if int(n_steps) == 20 else f'_n{int(n_steps)}')
 
 
 def build_model(args, cfg, device):
+    if cfg.get('model_kind') == 'fm_library':     # standard flow matching (facebookresearch/flow_matching)
+        from diffusionsr.runners.train_fm_library import build_fm_model
+        return build_fm_model(args, cfg, device)
+    if cfg.get('model_kind') in ('ddpm_matched', 'diffusionsr'):   # DDPM baselines, same interface
+        from diffusionsr.analysis.ddpm_adapter import build_ddpm_model
+        return build_ddpm_model(args, cfg, device)
     from diffusionsr.datasets.flipped_dataset import FlippedDataset
     from diffusionsr.runners.train_si_schedules import ScheduledInterpolantModel
     raw = cfg.get('fields', 'temperature')
@@ -212,6 +220,83 @@ def ensemble_skill(preds, gts, ch: int = 0, threshold: float = 1900.0, chunk: in
     return out
 
 
+def hr_px_um(cfg, test_ds) -> float:
+    """HR pixel size. Old data: _px_um(factor) (2x -> 10 um). The 2026 regen data sets hr_px_um in the
+    config (10 um for 40->10 and 20->10, 20 um for 40->20), since its factor does not imply the pixel size."""
+    return float(cfg['hr_px_um']) if cfg.get('hr_px_um') else float(_px_um(test_ds.factor))
+
+
+def largest_melt_frame(gts, threshold: float = 1900.0) -> int:
+    """Test frame with the most melted pixels: the old studies' frame 3726 was chosen this way."""
+    return int(np.argmax([(np.asarray(gts[n, 0]) > threshold).sum() for n in range(gts.shape[0])]))
+
+
+# Liquid-region rule per label channel for field_metrics' IoU; the config's liquid_rule names one.
+LIQUID_RULES = {'gt0.5': lambda a: a > 0.5, 'gt0': lambda a: a > 0.0, 'lt0': lambda a: a < 0.0}
+
+
+def run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device) -> dict:
+    """eval_extras outputs for one eval. Each part is independent: a failure is recorded, not raised, so a
+    long sampling run is never lost to a plotting error."""
+    from diffusionsr.analysis import eval_extras as X
+    from diffusionsr.analysis.add_depth_metrics import depth_metrics
+    out, errors = {}, {}
+    info = X.frame_info(test_ds)
+
+    def attempt(name, fn):
+        try:
+            fn()
+        except Exception as e:   # noqa: BLE001 -- recorded in results.json
+            errors[name] = f'{type(e).__name__}: {e}'
+            print(f'extras: {name} failed: {errors[name]}')
+
+    attempt('model_size', lambda: out.update(X.model_size(
+        model, os.path.join(args.model_dir, 'bestmodel_saved.pth'),
+        os.path.join(args.enc_dir, 'bestmodel_saved.pth') if args.enc_dir else None)))
+    attempt('benchmark', lambda: out.update(X.benchmark_sampling(
+        model, test_ds, args.solver, args.n_steps, args.eps, k=args.k_samples,
+        frames=args.frames_per_batch, device=device)))
+    if len(field_names) > 1:
+        liq = next((f for f in field_names if 'liqlabel' in f), None)
+        rule = LIQUID_RULES.get(cfg.get('liquid_rule', 'gt0.5' if liq == 'liqlabel' else ''))
+        attempt('field_metrics', lambda: out.update(X.field_metrics(
+            preds, gts, list(field_names), liquid_field=liq if rule else None, liquid_rule=rule)))
+    attempt('depth_subpx', lambda: X.write_json(os.path.join(args.out_dir, 'depth_subpx.json'),
+                                                depth_metrics(preds, gts, px_um=px_um)))
+    attempt('pv_metrics', lambda: X.write_json(os.path.join(args.out_dir, 'pv_metrics.json'),
+                                               X.pv_metrics(preds, gts, info, px_um)))
+    attempt('trajectory_gif', lambda: X.trajectory_gif(
+        model, test_ds, int(args.plot_frame_idx), os.path.join(args.out_dir, 'trajectory.gif'),
+        solver=args.solver, n_steps=args.n_steps, eps=args.eps, k=args.k_samples, seed=args.seed,
+        device=device, label=args.eval_name))
+    attempt('simtime_gif', lambda: X.simtime_gif(
+        preds, gts, info, os.path.join(args.out_dir, 'simtime.gif'), px_um=px_um, label=args.eval_name))
+    if errors:
+        out['extras_errors'] = errors
+    return out
+
+
+def run_extras_existing(args, json_path, npz_path):
+    """Add the extras to an eval that already has results.json + predictions.npz (no re-sampling of the
+    test set; the trajectory GIF and the timing benchmark still run the model on one batch)."""
+    cfg = yaml.safe_load(open(args.config))
+    device = args.device if torch.cuda.is_available() else 'cpu'
+    model, test_ds, field_names = build_model(args, cfg, device)
+    results = json.load(open(json_path))
+    with np.load(npz_path, allow_pickle=True) as z:
+        preds, gts = np.asarray(z['pred']), np.asarray(z['gt'])
+    px_um = hr_px_um(cfg, test_ds)
+    if args.plot_frame_idx < 0:
+        args.plot_frame_idx = largest_melt_frame(gts)
+    extra = run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device)
+    results.update({k: v for k, v in extra.items() if k not in results or k == 'extras_errors'})
+    results.setdefault('hr_px_um', px_um)
+    with open(json_path + '.tmp', 'w') as f:
+        json.dump(results, f, indent=2)
+    os.replace(json_path + '.tmp', json_path)
+    print(json.dumps(extra, indent=2))
+
+
 def upload(args, json_path, npz_path, overlay_path, results):
     import wandb
     from diffusionsr.utils import log_single_version_artifact, wandb_safe_id
@@ -223,7 +308,9 @@ def upload(args, json_path, npz_path, overlay_path, results):
     run.summary.update({k: v for k, v in results.items() if isinstance(v, (int, float, str))})
     ok = log_single_version_artifact(
         f'{args.eval_name}_eval_predictions', 'eval_predictions',
-        {'predictions.npz': npz_path, 'results.json': json_path, 'overlay.png': overlay_path},
+        {'predictions.npz': npz_path, 'results.json': json_path, 'overlay.png': overlay_path,
+         **{f: os.path.join(args.out_dir, f) for f in ('pv_metrics.json', 'depth_subpx.json', 'trajectory.gif',
+                                                      'simtime.gif') if os.path.exists(os.path.join(args.out_dir, f))}},
         metadata=results, description=f'SI-schedules eval: {args.eval_name}', run=run)
     run.finish()
     if not ok:
@@ -237,7 +324,8 @@ def main():
     ap.add_argument('--model_dir', required=True)
     ap.add_argument('--enc_dir', required=True)
     ap.add_argument('--data_root', required=True)
-    ap.add_argument('--solver', required=True, choices=SOLVERS)
+    ap.add_argument('--solver', required=True, choices=list(SOLVERS) + ['midpoint', 'ddpm', 'ddim'],
+                    help="'midpoint': fm_library models only; 'ddpm' (ancestral) / 'ddim': DDPM baselines only")
     ap.add_argument('--eps', type=float, default=0.0)
     ap.add_argument('--n_steps', type=int, default=20)
     ap.add_argument('--k_samples', type=int, default=10)
@@ -245,7 +333,12 @@ def main():
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--weights', default='raw', choices=['raw', 'ema'],
                     help="'raw' (default) matches how the previous SI evals loaded checkpoints")
-    ap.add_argument('--plot_frame_idx', type=int, default=70)
+    ap.add_argument('--plot_frame_idx', type=int, default=70,
+                    help='overlay/trajectory frame; -1 = the test frame with the largest true melt pool')
+    ap.add_argument('--no_extras', action='store_true',
+                    help='skip eval_extras (P/V metrics, sub-pixel depth, field metrics, model size, timing, GIFs)')
+    ap.add_argument('--extras_only', action='store_true',
+                    help='existing eval: compute only the extras from predictions.npz and add their keys')
     ap.add_argument('--out_root', required=True)
     ap.add_argument('--ckpt_artifact', default='', help='restore bestmodel_saved.pth from here if missing')
     ap.add_argument('--keep_partial', action='store_true')
@@ -259,13 +352,20 @@ def main():
 
     if args.eps > 0 and args.solver not in SDE_SOLVERS:
         raise SystemExit(f'{args.solver} is ODE-only; eps must be 0')
-    args.eval_name = eval_name_for(args.train_name, args.solver, args.eps)
+    args.eval_name = eval_name_for(args.train_name, args.solver, args.eps, args.n_steps)
     args.out_dir = os.path.join(args.out_root, args.eval_name)
     os.makedirs(args.out_dir, exist_ok=True)
     json_path = os.path.join(args.out_dir, f'{args.eval_name}_results.json')
     npz_path = os.path.join(args.out_dir, 'predictions.npz')
     overlay_path = os.path.join(args.out_dir, f'overlay_frame{args.plot_frame_idx}.png')
+    if args.plot_frame_idx < 0:
+        import glob
+        found = sorted(glob.glob(os.path.join(args.out_dir, 'overlay_frame*.png')))
+        overlay_path = found[0] if found else os.path.join(args.out_dir, 'overlay_frame_auto.png')
 
+    if args.extras_only:
+        run_extras_existing(args, json_path, npz_path)
+        return
     if os.path.exists(json_path) and os.path.exists(npz_path) and os.path.exists(overlay_path):
         print(f'{json_path} exists: skipping sampling, (re)uploading only')
         results = json.load(open(json_path))
@@ -279,15 +379,21 @@ def main():
         model, test_ds, field_names = build_model(args, cfg, device)
         preds, gts, ulrs, nfe, wall = sample_resumable(model, test_ds, args, device)
 
-        results = compute_metrics(preds, gts, _px_um(test_ds.factor))
+        px_um = hr_px_um(cfg, test_ds)
+        if args.plot_frame_idx < 0:
+            args.plot_frame_idx = largest_melt_frame(gts)
+        results = compute_metrics(preds, gts, px_um)
         results.update(ensemble_spread(preds, gts))
         results.update(ensemble_skill(preds, gts))
         results.update(train_name=args.train_name, eval_name=args.eval_name,
-                       si_schedule=cfg['si_schedule'], si_gamma_scale=float(cfg.get('si_gamma_scale', 0.0)),
+                       si_schedule=cfg.get('si_schedule', cfg.get('model_kind')), si_gamma_scale=float(cfg.get('si_gamma_scale', 0.0)),
                        si_base=cfg.get('si_base', 'enc'),
-                       sigma=float(cfg['si_sigma']), solver=args.solver, eps=args.eps,
+                       sigma=float(cfg.get('si_sigma', 0.0)), solver=args.solver, eps=args.eps,
                        n_steps=args.n_steps, nfe_per_sample=float(nfe), wall_clock_s=float(wall),
-                       weights=args.weights, seed=args.seed)
+                       weights=args.weights, seed=args.seed, hr_px_um=px_um, field_names=list(field_names),
+                       model_kind=cfg.get('model_kind', 'si_scheduled'), plot_frame_idx=int(args.plot_frame_idx))
+        if not args.no_extras:
+            results.update(run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device))
         overlay_path = save_overlay_png(preds, gts, ulrs, args.out_dir, args.plot_frame_idx)
         np.savez_compressed(npz_path + '.tmp.npz', pred=np.asarray(preds, dtype=np.float32),
                             gt=np.asarray(gts, dtype=np.float32),

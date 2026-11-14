@@ -109,7 +109,7 @@ class ScheduledInterpolantModel(CoupledInterpolantModel):
         return field
 
     @torch.no_grad()
-    def sample(self, upscaled_lr, x_e, lr=None, solver='heun', n_steps=20, eps=0.0, generator=None):
+    def sample(self, upscaled_lr, x_e, lr=None, solver='heun', n_steps=20, eps=0.0, generator=None, callback=None):
         """One sample per input. Returns (x1_hat in HR-stat space, network evaluations used)."""
         self.model.eval()
         if self.si_base == 'enc' and lr is None:
@@ -118,7 +118,7 @@ class ScheduledInterpolantModel(CoupledInterpolantModel):
         zeta = torch.randn(m.shape, device=m.device, dtype=m.dtype, generator=generator)
         x0 = m + self.sigma * zeta
         return integrate(self._field(x_e), self.si_sched, x0, m, self.sigma, solver=solver,
-                         n_steps=n_steps, eps=eps, generator=generator)
+                         n_steps=n_steps, eps=eps, generator=generator, callback=callback)
 
     def batch_sample(self, dataset, batch, x_e, sampler='heun', n_steps=20, upscaled_lr=None,
                      eps0=0.0, lr=None, eps=None, generator=None, **kwargs):
