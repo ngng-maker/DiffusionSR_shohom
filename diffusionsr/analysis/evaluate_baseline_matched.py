@@ -98,10 +98,17 @@ def main():
     parser.add_argument('--harness', default='coupled', choices=['coupled', 'plain'],
                         help="which training loop produced the checkpoint; determines the class "
                              "rebuilt here and whether EMA weights are loaded")
-    parser.add_argument('--use_ema', action='store_true', default=True,
-                        help='load the EMA weights (harness=coupled only); EMA is standard practice '
-                             'and the SI arms are evaluated the same way')
+    # NOTE: the SI arms are NOT evaluated from EMA weights. evaluate_coupled.py and
+    # evaluate_si_schedules.py (default --weights raw) both load checkpoint[0], the raw weights.
+    # 'ema' stays the default only so the original task-0 numbers can be reproduced; pass
+    # --weights raw for a like-for-like comparison with the SI arms.
+    parser.add_argument('--weights', default='ema', choices=['ema', 'raw'],
+                        help="'ema' loads the EMA shadow weights (harness=coupled only; the original "
+                             "task-0 eval); 'raw' loads checkpoint[0], as every SI eval does")
+    parser.add_argument('--save_predictions', action='store_true',
+                        help='also write predictions.npz to --out_dir (otherwise only W&B gets it)')
     args = parser.parse_args()
+    args.use_ema = args.weights == 'ema'
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     os.makedirs(args.out_dir, exist_ok=True)
@@ -164,8 +171,8 @@ def main():
     checkpoint = torch.load(load_path, map_location=device, weights_only=False)
     if args.harness == 'coupled' and args.use_ema and len(checkpoint) > 5 and checkpoint[5] is not None:
         # CoupledInterpolantModel.train() stores the EMA shadow weights at index 5. The SI arms are
-        # evaluated from their EMA weights, so the baseline must be too or the comparison is unfair
-        # in the baseline's disfavour.
+        # evaluated from their RAW weights (checkpoint[0]), so EMA here favours the baseline; use
+        # --weights raw for the matched comparison.
         from diffusionsr.runners.train_diffusion import remove_module_prefix  # not in diffusionsr.utils
         model.model.load_state_dict(remove_module_prefix(checkpoint[5]))
         print(f'Loaded EMA weights from {os.path.basename(load_path)}')
@@ -203,6 +210,13 @@ def main():
     json_path = os.path.join(args.out_dir, f'{args.run_name}_results.json')
     with open(json_path, 'w') as f:
         json.dump(results, f, indent=2)
+
+    if args.save_predictions:
+        # Kept next to results.json so add_skill_metrics.py can score CRPS / spread-skill from it.
+        np.savez(os.path.join(args.out_dir, 'predictions.npz'),
+                 pred=preds.astype(np.float32), gt=gts.astype(np.float32),
+                 ens_std=ens_std.astype(np.float32),
+                 field_names=np.array(args.field_names, dtype=object))
 
     if args.wandb_run_name is None:
         print('--wandb_run_name not provided; skipping W&B artifact upload.')
