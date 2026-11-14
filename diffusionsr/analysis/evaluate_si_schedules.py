@@ -57,6 +57,9 @@ def build_model(args, cfg, device):
     if cfg.get('model_kind') in ('ddpm_matched', 'diffusionsr'):   # DDPM baselines, same interface
         from diffusionsr.analysis.ddpm_adapter import build_ddpm_model
         return build_ddpm_model(args, cfg, device)
+    if cfg.get('model_kind') == 'encoder_only':                    # the frozen encoder alone (K = 1)
+        from diffusionsr.analysis.ddpm_adapter import build_encoder_model
+        return build_encoder_model(args, cfg, device)
     from diffusionsr.datasets.flipped_dataset import FlippedDataset
     from diffusionsr.runners.train_si_schedules import ScheduledInterpolantModel
     raw = cfg.get('fields', 'temperature')
@@ -324,7 +327,7 @@ def main():
     ap.add_argument('--model_dir', required=True)
     ap.add_argument('--enc_dir', required=True)
     ap.add_argument('--data_root', required=True)
-    ap.add_argument('--solver', required=True, choices=list(SOLVERS) + ['midpoint', 'ddpm', 'ddim'],
+    ap.add_argument('--solver', required=True, choices=list(SOLVERS) + ['midpoint', 'ddpm', 'ddim', 'encoder'],
                     help="'midpoint': fm_library models only; 'ddpm' (ancestral) / 'ddim': DDPM baselines only")
     ap.add_argument('--eps', type=float, default=0.0)
     ap.add_argument('--n_steps', type=int, default=20)

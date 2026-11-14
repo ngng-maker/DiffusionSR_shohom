@@ -113,3 +113,43 @@ def build_ddpm_model(args, cfg, device):
     model.model.eval()
     print(f'Loaded {path} ({args.weights} weights) as {kind}')
     return DDPMAdapter(model), test_ds, field_names
+
+
+class EncoderAdapter:
+    """The frozen encoder alone (deterministic, use K = 1) behind the shared sample() interface."""
+
+    def __init__(self, enc, train_ds, device):
+        self.lr_enc, self.train_ds, self.device = enc, train_ds, device
+        self.model = torch.nn.Identity()                   # no generative network: 0 parameters
+
+    def compute_x_e(self, lr, ulr):
+        return lr
+
+    @torch.no_grad()
+    def sample(self, upscaled_lr, x_e, lr=None, solver='encoder', n_steps=1, eps=0.0, generator=None,
+               callback=None):
+        from diffusionsr.runners.train_diffusion import forwardpass
+        out = forwardpass(self.lr_enc, lr.to(self.device).float(), factor=self.train_ds.factor, output=True,
+                          transform_rescale=False, dataset=self.train_ds)
+        if callback is not None:
+            callback(0, 0.0, out)
+        return out, 1
+
+
+def build_encoder_model(args, cfg, device):
+    """(EncoderAdapter, test_ds, field_names) for model_kind 'encoder_only' (encoder in args.enc_dir)."""
+    from diffusionsr.datasets.flipped_dataset import FlippedDataset
+    from diffusionsr.models.encoder_factory import build_encoder
+    raw = cfg.get('fields', 'temperature')
+    field_names = raw.split('_') if isinstance(raw, str) else list(raw)
+    kw = dict(downscale_method=cfg.get('downscale_method', 'direct'), root_folder=args.data_root,
+              normalize=cfg.get('normalize_method', 'standardize'), n_steps=int(cfg.get('n_steps', 1)),
+              field_names=field_names, p_flip=0.0)
+    train_ds, test_ds = FlippedDataset(split='train', **kw), FlippedDataset(split='test', **kw)
+    C = test_ds.n_steps * test_ds.num_fields
+    enc = build_encoder(encoder_type=cfg.get('encoder_type', 'rrdb'), upscale_factor=test_ds.factor,
+                        in_channels=C, out_channels=C, encoder_kwargs=None)
+    ckpt = torch.load(os.path.join(args.enc_dir, 'bestmodel_saved.pth'), map_location=device, weights_only=False)
+    enc.load_state_dict(ckpt['model_state_dict'])
+    enc.to(device).eval()
+    return EncoderAdapter(enc, train_ds, device), test_ds, field_names

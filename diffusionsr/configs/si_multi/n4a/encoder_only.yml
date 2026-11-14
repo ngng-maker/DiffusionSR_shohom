@@ -1,0 +1,19 @@
+# Frozen encoder alone, setting n4a (K = 1)
+root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x2_40to20
+downscale_method: direct
+n_steps: '1'
+residual_flag: false
+normalize_method: standardize
+schedule: linear
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 0.0002
+use_pretrained: false
+loss_type: l2
+encoding: true
+conditioning: implicit
+fields: temperature_sdfliqlabel
+encoder_results_dir: /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/si_multi/encoders/enc_n4a
+hr_px_um: 20
+model_kind: encoder_only

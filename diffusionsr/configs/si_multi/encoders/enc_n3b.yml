@@ -1,0 +1,18 @@
+# Frozen RRDB encoder for setting n3b: identical recipe to fno_ablation/enc_rrdb
+# Run: train_srdiff --modeltype encoder --force_enc_dir <enc dir>
+root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x2_20to10
+downscale_method: direct
+n_steps: '1'
+encoding: true
+residual_flag: false
+conditioning: implicit
+normalize_method: standardize
+schedule: linear
+timesteps: 1000
+batch_size: 8
+epochs: 300
+learning_rate: 5.0e-05
+use_pretrained: false
+loss_type: huber
+encoder_type: rrdb
+fields: temperature
