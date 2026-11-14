@@ -16,6 +16,7 @@ conditioning: implicit
 fields: temperature_sdfliqlabel
 encoder_results_dir: /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/si_multi/encoders/enc_n4a
 hr_px_um: 20
+liquid_rule: gt0.5
 fm_timescale: 1000.0
 ema_decay: 0.999
 grad_clip: 1.0

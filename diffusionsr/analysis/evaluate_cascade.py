@@ -5,7 +5,7 @@ the direct 40 -> 10 um eval of the same schedule/start/solver/eps ("matched pair
 
 Chaining, per test frame: stage A draws K samples at 20 um from the true 40 um input; each 20 um sample
 (physical units, clipped like the dataset loader) is re-normalised with stage B's LR statistics, upscaled to
-10 um resolution with the same interpolation as the dataset build (--upscale_mode) and re-normalised with
+10 um resolution with the same interpolation as the dataset build (bilinear; nearest for liqlabel) and re-normalised with
 stage B's upscaled-LR statistics; stage B then draws ONE 10 um sample from it. K stage-A samples -> K final
 samples. Stage B was trained on TRUE 20 um simulations, so it sees its own predictions only here; that
 train/test shift is part of what the chained numbers measure. Network evaluations add up (nfe A + nfe B).
@@ -80,10 +80,29 @@ class ChainDataset:
         return self.a.unscale_data(array, input_type=input_type, **kw)
 
 
+def upscale_like_dataset(x, size, field_names, mode='dataset'):
+    """Upscale (B, C, h, w) physical fields to `size` as the dataset build made LR/direct/<f>x.
+
+    'dataset' (default): skimage.transform.resize order 1 (bilinear, no anti-aliasing) for continuous fields
+    and order 0 (nearest) for the liquid label, as build_regen_dataset.py does and as reproduces data_fields'
+    stored upscaled LR. For integer factors these equal torch bilinear (align_corners=False; skimage's
+    reflect mode and torch's edge clamp agree at these sample points) and torch nearest.
+    Any other value is passed to F.interpolate as the mode for every field.
+    """
+    if mode != 'dataset':
+        return F.interpolate(x, size=size, mode=mode,
+                             align_corners=False if mode in ('bilinear', 'bicubic') else None)
+    up = F.interpolate(x, size=size, mode='bilinear', align_corners=False)
+    for c, name in enumerate(field_names):
+        if 'liqlabel' in name:
+            up[:, c] = F.interpolate(x[:, c:c + 1], size=size, mode='nearest')[:, 0]
+    return up
+
+
 class CascadeModel:
     """Two trained models chained behind the shared sampling interface."""
 
-    def __init__(self, model_a, model_b, ds_a, ds_b, upscale_mode='bicubic'):
+    def __init__(self, model_a, model_b, ds_a, ds_b, upscale_mode='dataset'):
         self.A, self.B, self.da, self.db = model_a, model_b, ds_a, ds_b
         self.upscale_mode = upscale_mode
         self.model = torch.nn.ModuleList([model_a.model, model_b.model])       # for eval_extras.model_size
@@ -112,8 +131,7 @@ class CascadeModel:
         phys = self._clip(phys.float())
         lr_b = self.db.rescale_data(phys, input_type='lr', maintain_torch=True).float()
         H = W = int(self.db.img_shape)
-        up = F.interpolate(phys, size=(H, W), mode=self.upscale_mode,
-                           align_corners=False if self.upscale_mode in ('bilinear', 'bicubic') else None)
+        up = upscale_like_dataset(phys, (H, W), list(self.db.field_names), self.upscale_mode)
         ulr_b = self.db.rescale_data(up, input_type='upscaled_lr', maintain_torch=True).float()
         return lr_b, ulr_b
 
@@ -155,7 +173,8 @@ def main():
     ap.add_argument('--frames_per_batch', type=int, default=4)
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--weights', default='raw', choices=['raw', 'ema'])
-    ap.add_argument('--upscale_mode', default='bicubic', help='must match the dataset build (LR/direct/<f>x)')
+    ap.add_argument('--upscale_mode', default='dataset',
+                    help="'dataset' = bilinear + nearest for liqlabel, as the dataset build (LR/direct/<f>x)")
     ap.add_argument('--plot_frame_idx', type=int, default=-1)
     ap.add_argument('--out_root', required=True)
     ap.add_argument('--max_frames', type=int, default=None)

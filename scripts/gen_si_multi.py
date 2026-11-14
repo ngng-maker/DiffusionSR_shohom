@@ -40,7 +40,8 @@ RUNS = 'diffusionsr/runs/si_multi'
 EVALS = 'eval_results/si_multi'
 
 # Liquid-region rule for the sdfliqlabel IoU (eval_extras.field_metrics); set from the dataset build.
-LIQUID_RULE = os.getenv('SI_MULTI_LIQUID_RULE', '')
+# liqlabel is a binary 0/1 label in both datasets ('sdfliqlabel' is only an alias of that column).
+LIQUID_RULE = os.getenv('SI_MULTI_LIQUID_RULE', 'gt0.5')
 
 SETTINGS = {
     #  id      data root                  fields                      hr_px  study

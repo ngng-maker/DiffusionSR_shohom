@@ -394,7 +394,8 @@ def main():
                        sigma=float(cfg.get('si_sigma', 0.0)), solver=args.solver, eps=args.eps,
                        n_steps=args.n_steps, nfe_per_sample=float(nfe), wall_clock_s=float(wall),
                        weights=args.weights, seed=args.seed, hr_px_um=px_um, field_names=list(field_names),
-                       model_kind=cfg.get('model_kind', 'si_scheduled'), plot_frame_idx=int(args.plot_frame_idx))
+                       model_kind=cfg.get('model_kind', 'si_scheduled'), plot_frame_idx=int(args.plot_frame_idx),
+                       fm_source=cfg.get('fm_source'))
         if not args.no_extras:
             results.update(run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device))
         overlay_path = save_overlay_png(preds, gts, ulrs, args.out_dir, args.plot_frame_idx)

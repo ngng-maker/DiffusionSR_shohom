@@ -70,7 +70,7 @@ def test_chain_dataset_aligns_and_restores_ulr():
 def test_cascade_sample_shapes_nfe_and_resumable(tmp_path):
     a, b = StageDS(4, 2), StageDS(8, 4, mean=900.0, std=400.0)
     A, B = Upsampler(), Upsampler()
-    cm = CascadeModel(A, B, a, b, upscale_mode='bicubic')
+    cm = CascadeModel(A, B, a, b)
     ch = ChainDataset(a, b)
     _, hr, lr, ulr = (x[None] for x in ch[0])
     seen = []

@@ -37,6 +37,6 @@ python -m diffusionsr.analysis.evaluate_cascade --chain_name "$CHAIN" \
   --a_config "$CA" --a_model_dir "$RA" --a_enc_dir "$EA" --a_data_root "$DA" \
   --b_config "$CB" --b_model_dir "$RB" --b_enc_dir "$EB" --b_data_root "$DB" \
   --solver "$SOLVER" --eps "$EPS" --n_steps "$NSTEPS" --weights "$WEIGHTS" \
-  --upscale_mode "${CASCADE_UPSCALE_MODE:-bicubic}" --out_root "$OUT" &
+  --upscale_mode "${CASCADE_UPSCALE_MODE:-dataset}" --out_root "$OUT" &
 wait $!
 echo "=== cascade eval complete ==="
