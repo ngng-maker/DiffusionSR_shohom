@@ -23,7 +23,11 @@ cluster_activate_env
 mkdir -p logs/fm_library
 SMOKE_CFG="${SMOKE_CFG:-fm_paired_enc_temp}"
 SMOKE_FRAMES="${SMOKE_FRAMES:-8}"
-IDX=$(for i in "${!FM_CONFIGS[@]}"; do [ "${FM_CONFIGS[$i]}" = "$SMOKE_CFG" ] && echo $i; done)
+IDX=""
+for i in "${!FM_CONFIGS[@]}"; do
+  if [ "${FM_CONFIGS[$i]}" = "$SMOKE_CFG" ]; then IDX=$i; fi
+done
+if [ -z "$IDX" ]; then echo "ERROR: $SMOKE_CFG is not in arms.sh"; exit 1; fi
 export FM_RUNS="$CL_REPO/diffusionsr/runs/fm_library_smoke" FM_RUN_PREFIX=smoke_ SI_EPOCHS=1
 export SLURM_ARRAY_TASK_ID=$IDX SLURM_ARRAY_JOB_ID=${SLURM_JOB_ID}
 bash slurm/fm_library/01_train_array.sh
