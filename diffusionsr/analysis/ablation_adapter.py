@@ -43,9 +43,11 @@ class LastStepDataset(torch.utils.data.Dataset):
         return len(self.ds)
 
     def __getitem__(self, i):
-        item = self.ds[i]
+        # Tensors, as FlippedDataset returns: eval_extras indexes the dataset directly (no DataLoader collate)
+        # and calls .to(device) on the items.
+        item = tuple(torch.as_tensor(x) if isinstance(x, np.ndarray) else x for x in self.ds[i])
         res, hr = item[0][self.sl], item[1][self.sl]
-        return (res, hr) + tuple(item[2:])
+        return (res, hr) + item[2:]
 
     def __getattr__(self, name):            # only called for attributes not found on the wrapper
         return getattr(self.__dict__['ds'], name)
