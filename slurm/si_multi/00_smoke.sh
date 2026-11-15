@@ -101,7 +101,8 @@ for s in n2 n3a n3b; do
     --modeltype encoder --gpu 0 --force_enc_dir "$PWD/$S/enc_$s" --wandb_run_name "smoke_simulti_enc_$s" --epochs 1
 done
 train() {   # name setting modeltype
-  local RESUME="--wandb_run_id smoke-simulti-$1 --ckpt_artifact smoke_simulti_$1_ckpt"
+  # W&B refuses to recreate a deleted run id, so smoke ids carry the job id
+  local RESUME="--wandb_run_id smoke-simulti-$1-${SLURM_JOB_ID} --ckpt_artifact smoke_simulti_$1_${SLURM_JOB_ID}_ckpt"
   case "$1" in *ddpm_matched*|*diffusionsr*) RESUME="--resume_from_wandb smoke_simulti_$1" ;; esac
   check python -m diffusionsr.runners.train_srdiff --data_root "$(DATA_OF $C/$1.yml)" --config "$C/$1.yml" \
     --modeltype "$3" --gpu 0 --force_enc_dir "$PWD/$S/enc_$2" --force_run_dir "$PWD/$S/$1" \
