@@ -1,0 +1,18 @@
+# Ablation v3: shared encoder alone (eval only)
+root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x2_20to10
+downscale_method: direct
+n_steps: '5'
+residual_flag: false
+schedule: linear
+timesteps: 1000
+batch_size: 40
+epochs: 1
+learning_rate: 5.0e-05
+use_pretrained: false
+loss_type: huber
+normalize_method: standardize
+fields: temperature
+hr_px_um: 10
+encoding: true
+conditioning: implicit
+model_kind: abl_enc

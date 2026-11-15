@@ -58,6 +58,9 @@ def build_model(args, cfg, device):
     if cfg.get('model_kind') in ('ddpm_matched', 'diffusionsr'):   # DDPM baselines, same interface
         from diffusionsr.analysis.ddpm_adapter import build_ddpm_model
         return build_ddpm_model(args, cfg, device)
+    if str(cfg.get('model_kind', '')).startswith('abl_'):   # ablation v3 DSR/FM/LDM/encoder, last timestep
+        from diffusionsr.analysis.ablation_adapter import build_ablation_model
+        return build_ablation_model(args, cfg, device)
     if cfg.get('model_kind') == 'encoder_only':                    # the frozen encoder alone (K = 1)
         from diffusionsr.analysis.ddpm_adapter import build_encoder_model
         return build_encoder_model(args, cfg, device)
@@ -135,7 +138,9 @@ def sample_resumable(model, test_ds, args, device):
         arrays['pred'][s0:s0 + B] = np.stack([np.stack([test_ds.unscale_data(x1[b, k], input_type='hr')
                                                         for k in range(K)]) for b in range(B)])
         arrays['gt'][s0:s0 + B] = np.stack([test_ds.unscale_data(hr[b].cpu().numpy(), input_type='hr') for b in range(B)])
-        arrays['ulr'][s0:s0 + B] = np.stack([test_ds.unscale_data(ulr[b].cpu().numpy(), input_type='upscaled_lr') for b in range(B)])
+        # [-C:]: models fed several timesteps (ablation v3) are scored on the last one; a no-op otherwise.
+        arrays['ulr'][s0:s0 + B] = np.stack([test_ds.unscale_data(ulr[b].cpu().numpy(), input_type='upscaled_lr')[-C:]
+                                             for b in range(B)])
         for a in arrays.values():
             a.flush()
         nfe_sum += nfe

@@ -22,7 +22,7 @@ def parse_args_and_config():
     parser.add_argument('--gpu', type=str, default="7",
                         help='Index of GPU to use')
     parser.add_argument('--modeltype', type=str, default='mobilenet',
-                        help="SR model to run. Options: diffusion | flow_matching | uncond_diffusion | ldm | encoder | mobilenet")
+                        help="SR model to run. Options: diffusion | flow_matching | uncond_diffusion | ldm | vae | encoder | mobilenet | coupled")
     parser.add_argument('--restart_dir', type=str, default='',
                         help="Legacy: diffusion restart dir (use --force_run_dir instead)")
     # Stable-path args for preemption-safe SLURM restart
@@ -516,6 +516,20 @@ if modeltype == 'encoder':
             'runs', downscale_method, 'encoder', datetime_string,
             normalize_method, f'n_steps_{n_steps}')
     _run_or_skip_encoder(encoder_results_dir)
+
+
+# ── VAE ONLY (the LDM's first stage, trained once and shared by several LDM runs) ──────────────────
+if modeltype == 'vae':
+    from diffusionsr.runners.train_ldm import pretrain_vae
+    vae_results_dir = getattr(new_config, 'vae_results_dir', '') or args.force_run_dir
+    if not vae_results_dir:
+        raise SystemExit('modeltype vae needs vae_results_dir in the config or --force_run_dir')
+    os.makedirs(vae_results_dir, exist_ok=True)
+    if not args.force_run_dir:                # keeps the W&B run id with the VAE, for resume on requeue
+        args.force_run_dir = vae_results_dir
+    _init_wandb()
+    pretrain_vae(vae_results_dir, train_dataset=train_dataset, dev_dataset=dev_dataset,
+                 test_dataset=test_dataset, num_epochs=int(getattr(new_config, 'vae_epochs', 100)))
 
 
 # ── COUPLED STOCHASTIC INTERPOLANT ────────────────────────────────────────────

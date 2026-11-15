@@ -40,14 +40,20 @@ def pretrain_vae(results_dir, train_dataset, dev_dataset, test_dataset,
     Train a KL-VAE on HR fields. Saves:
       vae_ckpt.pth    -- epoch-level restart checkpoint
       vae_best.pth    -- best validation-loss weights
-    Skipped if vae_best.pth already exists.
+    Skipped once training has finished (vae_ckpt.pth at the last epoch, or vae_best.pth without a
+    vae_ckpt.pth, as older runs left it). vae_best.pth is written on every validation improvement, so it
+    alone does not mean the VAE finished: a preempted run resumes from vae_ckpt.pth instead.
     """
     results_dir = Path(results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     if (results_dir / 'vae_best.pth').exists():
-        print(f"VAE already trained at {results_dir} — skipping.")
-        return 0
+        ckpt_file = results_dir / 'vae_ckpt.pth'
+        last = torch.load(ckpt_file, map_location='cpu')['epoch'] if ckpt_file.exists() else None
+        if last is None or last + 1 >= num_epochs:
+            print(f"VAE already trained at {results_dir} — skipping.")
+            return 0
+        print(f"VAE at {results_dir} stopped after epoch {last} of {num_epochs} — resuming.")
 
     in_ch = train_dataset.n_steps * train_dataset.num_fields
     vae = VAE2D(input_channels=in_ch, latent_channels=LATENT_CH,
