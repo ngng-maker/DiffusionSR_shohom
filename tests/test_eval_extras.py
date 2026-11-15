@@ -133,3 +133,12 @@ def test_trajectory_gif_single_sample(tmp_path):
     from PIL import Image
     p = X.trajectory_gif(FakeModel(), FakeDS(), 0, str(tmp_path / 'k1.gif'), n_steps=3, k=1, device='cpu')
     assert Image.open(p).n_frames >= 4
+
+
+def test_to_current_frame_slices_only_full_stacks():
+    p = np.zeros((2, 3, 10, 4, 4)); g = np.zeros((2, 10, 4, 4)); u = np.zeros((2, 10, 4, 4))
+    p[:, :, 8:] = 1                                   # n_steps 5 x 2 fields: frame t = channels 8, 9
+    a, b, c = X.to_current_frame(p, g, u, 5, 2)
+    assert a.shape[2] == 2 and a.min() == 1 and b.shape[1] == 2
+    a2, _, _ = X.to_current_frame(p[:, :, 8:], g[:, 8:], u[:, 8:], 5, 2)   # last-timestep model: unchanged
+    assert a2.shape[2] == 2

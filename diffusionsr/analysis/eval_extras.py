@@ -250,12 +250,18 @@ def trajectory_gif(model, test_ds, frame_idx: int, out_path: str, solver: str = 
         keep = np.unique(np.linspace(0, len(states) - 1, max_gif_frames).round().astype(int))
         states = [states[j] for j in keep]
     unscale = lambda a: np.stack([test_ds.unscale_data(s, input_type='hr') for s in a])
-    gt = test_ds.unscale_data(hr[0].cpu().numpy(), input_type='hr')[field]
-    final = unscale(states[-1][2])[:, field]
+    gt_all = test_ds.unscale_data(hr[0].cpu().numpy(), input_type='hr')
+    # `field` is the channel of frame t in an n_steps stack; a model that returns only the last timestep has
+    # n_fields channels, where the same field sits at field % n_fields.
+    fs = lambda a, c: c if c < a.shape[0] else c % a.shape[0]
+    gt = gt_all[fs(gt_all, field)]
+    fin_all = unscale(states[-1][2])
+    final = fin_all[:, fs(fin_all[0], field)]
     scales = _scales(gt, final.mean(0), final.std(0), t_scale, err_max, std_max)
     frames = []
     for i, t, x in states:
-        s = unscale(x)[:, field]
+        s_all = unscale(x)
+        s = s_all[:, fs(s_all[0], field)]
         mean, std = s.mean(0), s.std(0)
         frames.append(_render_row([gt, s[0], s[min(1, len(s) - 1)], np.abs(mean - gt), std],
                                   ['Truth', 'Sample 1', 'Sample 2', '|mean - truth|', 'Ensemble std'],
@@ -295,6 +301,18 @@ def current_frame(n_steps: int, n_fields: int) -> slice:
     step first). Metrics, GIFs and saved predictions use only these; for n_steps = 1 it is every channel."""
     n_steps = int(n_steps)
     return slice((n_steps - 1) * n_fields, n_steps * n_fields)
+
+
+def to_current_frame(preds, gts, ulrs, n_steps: int, n_fields: int):
+    """Keep frame t only. Models that return all n_steps stacked frames (n_steps * F channels) are sliced; models
+    that already return the last timestep (F channels, e.g. analysis/ablation_adapter.py) pass unchanged."""
+    C = preds.shape[2]
+    if C == n_fields:
+        return preds, gts, ulrs
+    if C != int(n_steps) * n_fields:
+        raise ValueError(f'{C} prediction channels: expected {n_fields} or {int(n_steps) * n_fields}')
+    cur = current_frame(n_steps, n_fields)
+    return preds[:, :, cur], gts[:, cur], ulrs[:, cur]
 
 
 def write_json(path: str, obj: dict):

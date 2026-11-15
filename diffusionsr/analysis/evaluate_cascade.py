@@ -216,9 +216,8 @@ def main():
         return
 
     preds, gts, ulrs, nfe, wall = sample_resumable(model, chain_ds, args, device)
-    from diffusionsr.analysis.eval_extras import current_frame
-    cur = current_frame(cfg_b.get('n_steps', 1), len(field_names))      # score frame t only
-    preds, gts, ulrs = preds[:, :, cur], gts[:, cur], ulrs[:, cur]
+    from diffusionsr.analysis.eval_extras import to_current_frame        # score frame t only
+    preds, gts, ulrs = to_current_frame(preds, gts, ulrs, cfg_b.get('n_steps', 1), len(field_names))
     px_um = hr_px_um(cfg_b, ds_b)
     if args.plot_frame_idx < 0:
         args.plot_frame_idx = largest_melt_frame(gts)

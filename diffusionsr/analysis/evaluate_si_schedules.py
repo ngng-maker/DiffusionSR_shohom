@@ -389,9 +389,8 @@ def main():
         model, test_ds, field_names = build_model(args, cfg, device)
         preds, gts, ulrs, nfe, wall = sample_resumable(model, test_ds, args, device)
         # n_steps > 1: the model predicts frames t-(n-1)..t; everything below scores and saves frame t only.
-        from diffusionsr.analysis.eval_extras import current_frame
-        cur = current_frame(cfg.get('n_steps', 1), len(field_names))
-        preds, gts, ulrs = preds[:, :, cur], gts[:, cur], ulrs[:, cur]
+        from diffusionsr.analysis.eval_extras import to_current_frame
+        preds, gts, ulrs = to_current_frame(preds, gts, ulrs, cfg.get('n_steps', 1), len(field_names))
 
         px_um = hr_px_um(cfg, test_ds)
         if args.plot_frame_idx < 0:
