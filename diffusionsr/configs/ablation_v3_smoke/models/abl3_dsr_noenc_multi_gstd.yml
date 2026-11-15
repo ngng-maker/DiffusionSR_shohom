@@ -14,6 +14,7 @@ loss_type: huber
 normalize_method: global_standardize
 fields: temperature_sdfliqlabel
 hr_px_um: 10
+history: consecutive
 model_kind: abl_dsr
 seed: 0
 encoding: false

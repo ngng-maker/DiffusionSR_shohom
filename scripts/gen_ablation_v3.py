@@ -12,6 +12,8 @@ Differences from v2, decided by the user (2026-11-14):
     temp/std with the encoder, seeds 0 and 1.
   * evaluation on the FULL test split with K = 10 through evaluate_si_schedules (SI metrics, P-V maps, timing,
     model size, trajectory + simulation-time GIFs); DSR and LDM ancestral DDPM-1000, FM Euler-50.
+  * history: consecutive (dataset.py): the 5 stacked frames are t-4..t of the same simulation, ambient before
+    frame 1. v2's legacy stacking skipped t-1 and took early frames' history from the previous simulation.
 Everything else as v2: n_steps 5, 600 epochs, batch 40, lr 5e-5, Huber loss, linear schedule, T = 1000.
 
 Writes diffusionsr/configs/ablation_v3/{encoders,vaes,models,evals}/*.yml and slurm/ablation_v3/{train,eval}.tsv.
@@ -35,7 +37,7 @@ def base(field, norm, epochs):
     return dict(root_folder=DATA, downscale_method='direct', n_steps="'5'", residual_flag='false',
                 schedule='linear', timesteps=1000, batch_size=40, epochs=epochs, learning_rate='5.0e-05',
                 use_pretrained='false', loss_type='huber', normalize_method=NORMS[norm], fields=FIELDS[field],
-                hr_px_um=10)
+                hr_px_um=10, history='consecutive')
 
 
 def dump(path, header, d):
