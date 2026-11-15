@@ -57,6 +57,22 @@ for root in ('x4_40to10', 'x2_40to20', 'x2_20to10'):
         r, hr, lr, ulr = ds[0][:4]
         print(root, fields, len(ds), ds.factor, tuple(hr.shape), tuple(lr.shape), tuple(ulr.shape))
 assert worst < 1e-4, worst
+# n_steps 5 with consecutive history: channels = frames t-4..t of the same simulation, ambient before frame 1
+import numpy as np, os
+for root, hist in (('/trace/group/forgelab/ngng/multifield/data_fields', 'consecutive'), (f'{R}/x4_40to10', 'consecutive')):
+    ds = FlippedDataset(split='test', downscale_method='direct', root_folder=root, normalize='standardize',
+                        n_steps=5, field_names=['temperature'], p_flip=0.0, history=hist)
+    P = list(ds.hr_paths)
+    cond = lambda p: os.path.dirname(p)
+    first = next(i for i in range(1, len(P)) if cond(P[i]) != cond(P[i - 1]))
+    for i, want in ((first + 6, [first + 2, first + 3, first + 4, first + 5, first + 6]),
+                    (first + 1, [None, None, None, first, first + 1])):
+        un = ds.unscale_data(np.asarray(ds[i][1]), input_type='hr')
+        for ch, k in enumerate(want):
+            ref = np.full(un[ch].shape, float(ds.baseline_hr[..., 0].mean())) if k is None else np.minimum(np.load(P[k])[..., 0], 8000)
+            ok = bool(np.allclose(un[ch], ref, atol=0.5))
+            print(os.path.basename(root), 'frame', i, 'slot', ch, '<-', 'ambient' if k is None else os.path.basename(P[k]), ok)
+            assert ok
 PY
 
 step "1-2. smoke configs, encoders and trainings (1 epoch)"

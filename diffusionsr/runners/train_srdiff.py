@@ -160,22 +160,25 @@ encoder_normalize = getattr(new_config, 'encoder_normalize', None)
 latent_unet_dim = getattr(new_config, 'latent_unet_dim', None)
 latent_unet_mults = tuple(getattr(new_config, 'latent_unet_mults', None) or (1,))
 
+# 'consecutive' history (frames t-(n-1)..t of the same simulation) for n_steps > 1; 'legacy' = earlier runs.
+history = str(getattr(new_config, 'history', 'legacy'))
+
 # Datasets
 train_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                      normalize=normalize_method,
                                      split='train',
                                      root_folder=root_folder,
-                                     n_steps=n_steps, field_names=field_names, out_steps=out_steps)
+                                     n_steps=n_steps, field_names=field_names, out_steps=out_steps, history=history)
 test_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                     normalize=normalize_method,
                                     split='test',
                                     root_folder=root_folder,
-                                    n_steps=n_steps, field_names=field_names, out_steps=out_steps)
+                                    n_steps=n_steps, field_names=field_names, out_steps=out_steps, history=history)
 dev_dataset = SimulationXZDataset(downscale_method=downscale_method,
                                    normalize=normalize_method,
                                    split='dev',
                                    root_folder=root_folder,
-                                   n_steps=n_steps, field_names=field_names, out_steps=out_steps)
+                                   n_steps=n_steps, field_names=field_names, out_steps=out_steps, history=history)
 
 dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4, pin_memory=True)
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4, pin_memory=True)
@@ -582,7 +585,7 @@ if modeltype == 'coupled':
     # Use FlippedDataset (pre-normalization flip, dims=[1]) for the coupled model.
     flip_kw = dict(downscale_method=downscale_method, normalize=normalize_method,
                    root_folder=root_folder, n_steps=n_steps, field_names=field_names,
-                   out_steps=out_steps, p_flip=p_flip)
+                   out_steps=out_steps, p_flip=p_flip, history=history)
     train_dataset_si = FlippedDataset(split='train', **flip_kw)
     dev_dataset_si   = FlippedDataset(split='dev',   **flip_kw)
     test_dataset_si  = FlippedDataset(split='test',  **flip_kw)

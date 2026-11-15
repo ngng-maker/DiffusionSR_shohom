@@ -1,7 +1,8 @@
 # DDPM in the SI harness (task-0 recipe), setting o1
 root_folder: /trace/group/forgelab/ngng/multifield/data_fields
 downscale_method: direct
-n_steps: '1'
+n_steps: '5'
+history: consecutive
 residual_flag: false
 normalize_method: standardize
 schedule: linear
@@ -14,7 +15,7 @@ loss_type: l2
 encoding: true
 conditioning: implicit
 fields: temperature
-encoder_results_dir: /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/fno_ablation/enc_rrdb
+encoder_results_dir: /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/si_multi/encoders/enc_o1
 hr_px_um: 10
 fm_timescale: 1000.0
 ema_decay: 0.999

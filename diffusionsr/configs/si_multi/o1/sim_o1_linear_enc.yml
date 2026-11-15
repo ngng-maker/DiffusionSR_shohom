@@ -1,0 +1,31 @@
+# SI linear schedule, enc start, setting o1 (temperature)
+# All other keys identical to configs/si_schedules (harness, sigma, encoder conditioning)
+root_folder: /trace/group/forgelab/ngng/multifield/data_fields
+downscale_method: direct
+n_steps: '5'
+history: consecutive
+residual_flag: false
+normalize_method: standardize
+schedule: linear
+timesteps: 1000
+batch_size: 40
+epochs: 300
+learning_rate: 0.0002
+use_pretrained: false
+loss_type: l2
+encoding: true
+conditioning: implicit
+fields: temperature
+encoder_results_dir: /trace/group/forgelab/ngng/multifield/DiffusionSR_shohom/diffusionsr/runs/si_multi/encoders/enc_o1
+hr_px_um: 10
+fm_timescale: 1000.0
+ema_decay: 0.999
+grad_clip: 1.0
+p_flip: 0.2
+ckpt_every: 5
+si_sigma: 0.1
+si_gamma_c: 0.0
+si_cond: enc_implicit
+si_process: scheduled
+si_schedule: linear
+si_base: enc

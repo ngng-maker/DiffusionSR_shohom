@@ -25,7 +25,8 @@ class SimulationXZDataset(Dataset):
                  out_steps=None,
                  inflate_dim=None,
                  inflate_method='repeat',
-                 crop_mode=None):
+                 crop_mode=None,
+                 history='legacy'):
         
         # Use default HR paths, always the same
         # Use LR path as specified, may change
@@ -38,6 +39,15 @@ class SimulationXZDataset(Dataset):
         self.normalize = normalize
         self.THRESHOLD_T = 8000 # threshold temperature at 8000 K
         self.n_steps = n_steps
+        # How n_steps > 1 stacks earlier frames (see _history_index):
+        #   'legacy'      the original stacking, kept so earlier n_steps 3/5 runs re-evaluate exactly as trained:
+        #                 channel slots hold frames t-n..t-2 and t (t-1 is skipped), and near the start of a
+        #                 simulation they take frames from the PREVIOUS simulation in the sorted file list.
+        #   'consecutive' frames t-(n-1)..t of the SAME simulation; slots before its first frame get the
+        #                 ambient baseline (frame 1 is the laser start, so earlier states are ambient).
+        if history not in ('legacy', 'consecutive'):
+            raise ValueError(f"history must be 'legacy' or 'consecutive', got {history!r}")
+        self.history = history
         if out_steps is None:
             self.out_steps = n_steps
         else:
@@ -159,6 +169,11 @@ class SimulationXZDataset(Dataset):
             _hr_2d = test_hr_shape[:-1] if len(test_hr_shape) >= 3 else test_hr_shape
             _lr_2d = test_lr_shape[:-1] if len(test_lr_shape) >= 3 else test_lr_shape
             _bvals = {'temperature': 293.0, 'liqlabel': 0.0}
+            if self.history == 'consecutive':
+                # Ambient read from the data (2022 campaign 293 K, 2026 regen 299.15 K): the coldest temperature
+                # of the first training frame. 'legacy' keeps 293 K so earlier runs are unchanged.
+                _t = all_field_names.get('temperature', 0)
+                _bvals['temperature'] = float(np.load(self.hr_paths[0], allow_pickle=True)[..., _t].min())
             self.baseline_hr = np.dstack([np.ones(_hr_2d) * _bvals.get(f, 0.0) for f in self.field_names])
             self.baseline_lr = np.dstack([np.ones(_lr_2d) * _bvals.get(f, 0.0) for f in self.field_names])
 
@@ -397,6 +412,19 @@ class SimulationXZDataset(Dataset):
         
         return array
     
+    def _history_index(self, index, step):
+        """File index for channel slot (n_steps - step) of frame `index`, or None for the ambient baseline.
+
+        'legacy' reproduces the original stacking (index - step; see __init__). 'consecutive' gives the frame
+        step - 1 positions earlier, only if it belongs to the same simulation (same condition folder); the
+        sorted path list holds each simulation's frames contiguously and in time order."""
+        if self.history == 'legacy':
+            return index - step if index - step > 0 else None
+        k = index - (step - 1)
+        if k < 0 or os.path.dirname(self.hr_paths[k]) != os.path.dirname(self.hr_paths[index]):
+            return None
+        return k
+
     def __getitem__(self, index):
         return self.testgetitem(index)
 
@@ -440,17 +468,17 @@ class SimulationXZDataset(Dataset):
         true_lr[:,:,num_fields*(self.n_steps-1):num_fields*(self.n_steps)] = single_true_lr
 
         for step in reversed(range(2, self.n_steps + 1)): # For n_steps = 3, the values of step will be [3,2]. 
-                
-            if index - step > 0:
-                if len(np.load(self.hr_paths[index-  step], allow_pickle=True).shape) < 3:
-                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.hr_paths, index = index-step)[:,:, None]
-                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.lr_paths, index= index-step)[:, :, None]
-                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.upscaled_lr_paths, index = index-step)[:,:, None]
+            src = self._history_index(index, step)
+            if src is not None:
+                if len(np.load(self.hr_paths[src], allow_pickle=True).shape) < 3:
+                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.hr_paths, index = src)[:,:, None]
+                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.lr_paths, index= src)[:, :, None]
+                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.upscaled_lr_paths, index = src)[:,:, None]
 
                 else:
-                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.hr_paths, index = index-step)
-                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.lr_paths, index = index - step)
-                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.upscaled_lr_paths, index = index - step)
+                    hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.hr_paths, index = src)
+                    true_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.lr_paths, index = src)
+                    upscaled_lr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.load_file(self.upscaled_lr_paths, index = src)
                     
             else:
                 hr[:,:,num_fields*(self.n_steps-step):num_fields*(self.n_steps-step+1)] = self.baseline_hr #np.ones_like(single_hr)*293

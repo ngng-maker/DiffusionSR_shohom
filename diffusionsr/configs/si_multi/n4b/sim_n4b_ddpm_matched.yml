@@ -1,7 +1,8 @@
 # DDPM in the SI harness (task-0 recipe), setting n4b
 root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x2_20to10
 downscale_method: direct
-n_steps: '1'
+n_steps: '5'
+history: consecutive
 residual_flag: false
 normalize_method: standardize
 schedule: linear

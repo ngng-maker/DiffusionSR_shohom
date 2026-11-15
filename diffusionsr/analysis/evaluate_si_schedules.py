@@ -70,7 +70,7 @@ def build_model(args, cfg, device):
     field_names = raw.split('_') if isinstance(raw, str) else list(raw)
     kw = dict(downscale_method=cfg.get('downscale_method', 'direct'), root_folder=args.data_root,
               normalize=cfg.get('normalize_method', 'standardize'), n_steps=int(cfg.get('n_steps', 1)),
-              field_names=field_names, p_flip=0.0)
+              field_names=field_names, p_flip=0.0, history=cfg.get('history', 'legacy'))
     train_ds = FlippedDataset(split='train', **kw)
     dev_ds = FlippedDataset(split='dev', **kw)
     test_ds = FlippedDataset(split='test', **kw)
@@ -274,10 +274,11 @@ def run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device
                                                 depth_metrics(preds, gts, px_um=px_um)))
     attempt('pv_metrics', lambda: X.write_json(os.path.join(args.out_dir, 'pv_metrics.json'),
                                                X.pv_metrics(preds, gts, info, px_um)))
+    cur_t = (int(cfg.get('n_steps', 1)) - 1) * len(field_names)     # temperature channel of frame t
     attempt('trajectory_gif', lambda: X.trajectory_gif(
         model, test_ds, int(args.plot_frame_idx), os.path.join(args.out_dir, 'trajectory.gif'),
         solver=args.solver, n_steps=args.n_steps, eps=args.eps, k=args.k_samples, seed=args.seed,
-        device=device, label=args.eval_name))
+        device=device, label=args.eval_name, field=cur_t))
     attempt('simtime_gif', lambda: X.simtime_gif(
         preds, gts, info, os.path.join(args.out_dir, 'simtime.gif'), px_um=px_um, label=args.eval_name))
     if errors:
@@ -387,6 +388,10 @@ def main():
         device = args.device if torch.cuda.is_available() else 'cpu'
         model, test_ds, field_names = build_model(args, cfg, device)
         preds, gts, ulrs, nfe, wall = sample_resumable(model, test_ds, args, device)
+        # n_steps > 1: the model predicts frames t-(n-1)..t; everything below scores and saves frame t only.
+        from diffusionsr.analysis.eval_extras import current_frame
+        cur = current_frame(cfg.get('n_steps', 1), len(field_names))
+        preds, gts, ulrs = preds[:, :, cur], gts[:, cur], ulrs[:, cur]
 
         px_um = hr_px_um(cfg, test_ds)
         if args.plot_frame_idx < 0:
@@ -401,7 +406,8 @@ def main():
                        n_steps=args.n_steps, nfe_per_sample=float(nfe), wall_clock_s=float(wall),
                        weights=args.weights, seed=args.seed, hr_px_um=px_um, field_names=list(field_names),
                        model_kind=cfg.get('model_kind', 'si_scheduled'), plot_frame_idx=int(args.plot_frame_idx),
-                       fm_source=cfg.get('fm_source'))
+                       fm_source=cfg.get('fm_source'), n_steps_history=int(cfg.get('n_steps', 1)),
+                       history=cfg.get('history', 'legacy'))
         if not args.no_extras:
             results.update(run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device))
         overlay_path = save_overlay_png(preds, gts, ulrs, args.out_dir, args.plot_frame_idx)

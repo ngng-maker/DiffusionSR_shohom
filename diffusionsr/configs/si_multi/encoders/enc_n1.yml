@@ -1,8 +1,9 @@
-# Frozen RRDB encoder for setting n1: identical recipe to fno_ablation/enc_rrdb
+# Frozen RRDB encoder for setting n1: recipe of fno_ablation/enc_rrdb, with n_steps 5
 # Run: train_srdiff --modeltype encoder --force_enc_dir <enc dir>
 root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x4_40to10
 downscale_method: direct
-n_steps: '1'
+n_steps: '5'
+history: consecutive
 encoding: true
 residual_flag: false
 conditioning: implicit

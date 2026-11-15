@@ -202,7 +202,7 @@ def build_fm_model(args, cfg, device):
     field_names = raw.split('_') if isinstance(raw, str) else list(raw)
     kw = dict(downscale_method=cfg.get('downscale_method', 'direct'), root_folder=args.data_root,
               normalize=cfg.get('normalize_method', 'standardize'), n_steps=int(cfg.get('n_steps', 1)),
-              field_names=field_names, p_flip=0.0)
+              field_names=field_names, p_flip=0.0, history=cfg.get('history', 'legacy'))
     train_ds = FlippedDataset(split='train', **kw)
     dev_ds = FlippedDataset(split='dev', **kw)
     test_ds = FlippedDataset(split='test', **kw)

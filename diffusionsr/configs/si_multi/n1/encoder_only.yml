@@ -1,7 +1,8 @@
 # Frozen encoder alone, setting n1 (K = 1)
 root_folder: /trace/group/forgelab/ngng/multifield/datasets/regen_2d/x4_40to10
 downscale_method: direct
-n_steps: '1'
+n_steps: '5'
+history: consecutive
 residual_flag: false
 normalize_method: standardize
 schedule: linear

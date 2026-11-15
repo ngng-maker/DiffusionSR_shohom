@@ -83,7 +83,7 @@ def build_ddpm_model(args, cfg, device):
     field_names = raw.split('_') if isinstance(raw, str) else list(raw)
     kw = dict(downscale_method=cfg.get('downscale_method', 'direct'), root_folder=args.data_root,
               normalize=cfg.get('normalize_method', 'standardize'), n_steps=int(cfg.get('n_steps', 1)),
-              field_names=field_names, p_flip=0.0)
+              field_names=field_names, p_flip=0.0, history=cfg.get('history', 'legacy'))
     train_ds, dev_ds, test_ds = (FlippedDataset(split=s, **kw) for s in ('train', 'dev', 'test'))
     best = os.path.join(args.model_dir, 'bestmodel_saved.pth')
     path = best if os.path.exists(best) else os.path.join(args.model_dir, 'ckpt.pth')
@@ -144,7 +144,7 @@ def build_encoder_model(args, cfg, device):
     field_names = raw.split('_') if isinstance(raw, str) else list(raw)
     kw = dict(downscale_method=cfg.get('downscale_method', 'direct'), root_folder=args.data_root,
               normalize=cfg.get('normalize_method', 'standardize'), n_steps=int(cfg.get('n_steps', 1)),
-              field_names=field_names, p_flip=0.0)
+              field_names=field_names, p_flip=0.0, history=cfg.get('history', 'legacy'))
     train_ds, test_ds = FlippedDataset(split='train', **kw), FlippedDataset(split='test', **kw)
     C = test_ds.n_steps * test_ds.num_fields
     enc = build_encoder(encoder_type=cfg.get('encoder_type', 'rrdb'), upscale_factor=test_ds.factor,

@@ -114,6 +114,10 @@ class CascadeModel:
         self.lr_enc = torch.nn.ModuleList(encs) if encs else None
         self.device = model_b.device
 
+    def _channel_names(self):
+        """Field name of every channel: n_steps stacked frames x fields (channel = step * F + field)."""
+        return list(self.db.field_names) * int(getattr(self.db, 'n_steps', 1))
+
     def _down(self, ulr_up):
         s = ulr_up.shape[-1] // int(self.da.img_shape)      # img_shape: HR side length of that task (int)
         return ulr_up[..., ::s, ::s]
@@ -124,7 +128,7 @@ class CascadeModel:
     def _clip(self, phys):
         """Clip like SimulationXZDataset does on load (per-field thresholds, e.g. temperature 8000 K)."""
         thr = getattr(self.db, 'field_threshold', {})
-        for c, name in enumerate(self.db.field_names):
+        for c, name in enumerate(self._channel_names()):
             if name in thr and np.isfinite(thr[name]):
                 phys[:, c] = phys[:, c].clamp(max=float(thr[name]))
         return phys
@@ -135,7 +139,7 @@ class CascadeModel:
         phys = self._clip(phys.float())
         lr_b = self.db.rescale_data(phys, input_type='lr', maintain_torch=True).float()
         H = W = int(self.db.img_shape)
-        up = upscale_like_dataset(phys, (H, W), list(self.db.field_names), self.upscale_mode)
+        up = upscale_like_dataset(phys, (H, W), self._channel_names(), self.upscale_mode)
         ulr_b = self.db.rescale_data(up, input_type='upscaled_lr', maintain_torch=True).float()
         return lr_b, ulr_b
 
@@ -212,6 +216,9 @@ def main():
         return
 
     preds, gts, ulrs, nfe, wall = sample_resumable(model, chain_ds, args, device)
+    from diffusionsr.analysis.eval_extras import current_frame
+    cur = current_frame(cfg_b.get('n_steps', 1), len(field_names))      # score frame t only
+    preds, gts, ulrs = preds[:, :, cur], gts[:, cur], ulrs[:, cur]
     px_um = hr_px_um(cfg_b, ds_b)
     if args.plot_frame_idx < 0:
         args.plot_frame_idx = largest_melt_frame(gts)

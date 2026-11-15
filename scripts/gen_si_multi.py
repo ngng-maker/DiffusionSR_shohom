@@ -13,12 +13,16 @@ Writes
 Paths in the files are relative to the TRACE repo root ($CL_REPO) unless absolute.
 
 Settings
-  o1   old data, temperature,                 20 -> 10 um   (SI grid already trained: si_schedules; FM + baselines new)
+  o1   old data, temperature,                 20 -> 10 um   (retrained: the SI-schedules runs used n_steps 1)
   o2   old data, temperature + sdfliqlabel,   20 -> 10 um
   n1   regen,    temperature,                 40 -> 10 um direct
   n2   regen,    temperature + sdfliqlabel,   40 -> 10 um direct
   n3a/n3b  regen, temperature,                40 -> 20, 20 -> 10 um (cascade stages)
   n4a/n4b  regen, temperature + sdfliqlabel,  cascade stages
+
+Every model uses n_steps = 5 (the current frame plus the 4 before it, stacked as channels) with
+history = 'consecutive' (frames t-4..t of the same simulation, ambient before its first frame; the dataset's
+'legacy' stacking skipped t-1 and crossed into the previous simulation). Metrics score frame t only.
 
 Re-run after any change; the output is deterministic.
 """
@@ -61,26 +65,22 @@ EPS = (0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0)
 FM_SETTINGS = ('o1', 'o2', 'n1', 'n2')
 STEP_SWEEP = (5, 10, 20, 50, 100)
 
-# O1 reuses what exists: the old frozen encoder and the SI-schedules runs/evals.
-O1_ENC = f'{TRACE_REPO}/diffusionsr/runs/fno_ablation/enc_rrdb'
-O1_SI_RUNS = 'diffusionsr/runs/si_schedules'
-O1_SI_CFGS = 'diffusionsr/configs/si_schedules'
-O1_SI_EVALS = 'eval_results/si_schedules'
-O1_DSR_ART = '19_Oct_2026_si_baseline_diffusionsr_temp_ckpt'      # task 11's checkpoint, kept on W&B
 
 # Training hyper-parameters: byte-identical to the SI-schedules study (and tasks 0 / 11 / 12).
-COMMON = dict(downscale_method='direct', n_steps='1', residual_flag=False, normalize_method='standardize',
+N_STEPS = '5'
+HISTORY = 'consecutive'
+COMMON = dict(downscale_method='direct', n_steps=N_STEPS, history=HISTORY, residual_flag=False, normalize_method='standardize',
               schedule='linear', timesteps=1000, batch_size=40, epochs=300, learning_rate=2e-4,
               use_pretrained=False, loss_type='l2', encoding=True, conditioning='implicit')
 HARNESS = dict(fm_timescale=1000.0, ema_decay=0.999, grad_clip=1.0, p_flip=0.2, ckpt_every=5)
 # Encoder pretraining: identical to fno_ablation/enc_rrdb (the O1 encoder).
-ENC = dict(downscale_method='direct', n_steps='1', encoding=True, residual_flag=False, conditioning='implicit',
+ENC = dict(downscale_method='direct', n_steps=N_STEPS, history=HISTORY, encoding=True, residual_flag=False, conditioning='implicit',
            normalize_method='standardize', schedule='linear', timesteps=1000, batch_size=8, epochs=300,
            learning_rate=5e-5, use_pretrained=False, loss_type='huber', encoder_type='rrdb')
 
 
 def enc_dir(s):
-    return O1_ENC if s == 'o1' else f'{TRACE_REPO}/{RUNS}/encoders/enc_{s}'
+    return f'{TRACE_REPO}/{RUNS}/encoders/enc_{s}'
 
 
 def write_cfg(rel, cfg, header):
@@ -121,31 +121,16 @@ def main():
 
     # ---------------- encoders (phase 1) ----------------
     for s in SETTINGS:
-        if s == 'o1':
-            continue
         st = SETTINGS[s]
         rel = write_cfg(f'{CFG_DIR}/encoders/enc_{s}.yml',
                         dict(root_folder=st['root'], **ENC, fields=st['fields']),
-                        [f'Frozen RRDB encoder for setting {s}: identical recipe to fno_ablation/enc_rrdb',
+                        [f'Frozen RRDB encoder for setting {s}: recipe of fno_ablation/enc_rrdb, with n_steps 5',
                          'Run: train_srdiff --modeltype encoder --force_enc_dir <enc dir>'])
         train.append(('encoder', f'enc_{s}', 'encoder', rel, enc_dir(s), enc_dir(s), 1))
 
     # ---------------- SI grids (phase 2) ----------------
     for s in SETTINGS:
-        if s == 'o1':
-            # trained in the SI-schedules study; only the extras are back-filled (eval rows with extra=extras_only)
-            for sch in SCHEDULES:
-                for b in BASES:
-                    name = f'si_sched_{sch}_{b}_temp'
-                    for solver in ('euler', 'heun'):
-                        for e in EPS:
-                            evals.append((name, f'{O1_SI_CFGS}/{name}.yml', f'{O1_SI_RUNS}/{name}', O1_ENC, OLD,
-                                          solver, e, 20, 10, 'raw', O1_SI_EVALS, 'extras_only', 2))
-                    for solver in ('rk4', 'dopri5'):
-                        evals.append((name, f'{O1_SI_CFGS}/{name}.yml', f'{O1_SI_RUNS}/{name}', O1_ENC, OLD,
-                                      solver, 0.0, 20, 10, 'raw', O1_SI_EVALS, 'extras_only', 2))
-            continue
-        phase = 2 if s == 'o2' else (3 if s in ('n1', 'n2') else 4)
+        phase = 2 if s in ('o1', 'o2') else (3 if s in ('n1', 'n2') else 4)
         for sch in SCHEDULES:
             for b in BASES:
                 name = f'sim_{s}_{sch}_{b}'
@@ -184,11 +169,9 @@ def main():
         name = f'sim_{s}_diffusionsr'
         rel = write_cfg(f'{CFG_DIR}/{s}/{name}.yml', cfg, [f'DiffusionSR as published (task-11 recipe), setting {s}'])
         run = f'{RUNS}/{s}/{name}'
-        extra = f'ckpt_artifact={O1_DSR_ART}' if s == 'o1' else '-'
-        if s != 'o1':
-            train.append(('diffusionsr', name, 'diffusion', rel, run, enc_dir(s), phase))
+        train.append(('diffusionsr', name, 'diffusion', rel, run, enc_dir(s), phase))
         evals.append((f'{name}_raw', rel, run, enc_dir(s), SETTINGS[s]['root'], 'ddpm', 0.0, 1000, 10, 'raw',
-                      f'{EVALS}/{s}', extra, phase))
+                      f'{EVALS}/{s}', '-', phase))
 
     # ---------------- cascades: matched pairs (phase 4) ----------------
     for c, (a, b) in CASCADES.items():
@@ -211,10 +194,10 @@ def main():
     # ---------------- FM study (Experiment 2) ----------------
     for s in FM_SETTINGS:
         phase = 2 if s in ('o1', 'o2') else 3
-        si_name = 'si_sched_linear_enc_temp' if s == 'o1' else f'sim_{s}_linear_enc'
-        si_cfg = f'{O1_SI_CFGS}/{si_name}.yml' if s == 'o1' else f'{CFG_DIR}/{s}/{si_name}.yml'
-        si_run = f'{O1_SI_RUNS}/{si_name}' if s == 'o1' else f'{RUNS}/{s}/{si_name}'
-        si_out = O1_SI_EVALS if s == 'o1' else f'{EVALS}/{s}'
+        si_name = f'sim_{s}_linear_enc'
+        si_cfg = f'{CFG_DIR}/{s}/{si_name}.yml'
+        si_run = f'{RUNS}/{s}/{si_name}'
+        si_out = f'{EVALS}/{s}'
         models = [(si_name, si_cfg, si_run, si_out, ('euler', 'heun', 'rk4'), True)]
         for src in ('noise', 'paired'):
             name = f'sim_{s}_fm_{src}'

@@ -290,6 +290,13 @@ def simtime_gif(preds, gts, info: list[dict], out_path: str, condition: str | No
     return _save_gif(frames, out_path, ms=150, hold_last=3)
 
 
+def current_frame(n_steps: int, n_fields: int) -> slice:
+    """Channels of the current frame t in an n_steps-stacked tensor (channel = step * n_fields + field, oldest
+    step first). Metrics, GIFs and saved predictions use only these; for n_steps = 1 it is every channel."""
+    n_steps = int(n_steps)
+    return slice((n_steps - 1) * n_fields, n_steps * n_fields)
+
+
 def write_json(path: str, obj: dict):
     tmp = path + '.tmp'
     with open(tmp, 'w') as f:
