@@ -76,7 +76,11 @@ class ChainDataset:
         if input_type == 'hr':
             return self.b.unscale_data(array, input_type='hr', **kw)
         if input_type == 'upscaled_lr':
-            return self.a.unscale_data(array, input_type='upscaled_lr', **kw)
+            # stage A's upscaled LR was nearest-upsampled to stage-B size in __getitem__; its statistics are
+            # per pixel at stage-A size, so un-scale at that size and upsample the physical field back.
+            s = array.shape[-1] // int(self.a.img_shape)
+            phys = self.a.unscale_data(array[..., ::s, ::s], input_type='upscaled_lr', **kw)
+            return np.repeat(np.repeat(np.asarray(phys), s, axis=-2), s, axis=-1)
         return self.a.unscale_data(array, input_type=input_type, **kw)
 
 

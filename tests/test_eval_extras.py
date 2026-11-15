@@ -126,3 +126,10 @@ def test_si_callback_does_not_change_result():
         assert seen[0] == (0, 0.0) and len(seen) >= 2
         if solver != 'dopri5':
             assert len(seen) == 6
+
+
+def test_trajectory_gif_single_sample(tmp_path):
+    """K = 1 (the encoder alone) has no second sample; the GIF shows sample 1 twice instead of failing."""
+    from PIL import Image
+    p = X.trajectory_gif(FakeModel(), FakeDS(), 0, str(tmp_path / 'k1.gif'), n_steps=3, k=1, device='cpu')
+    assert Image.open(p).n_frames >= 4

@@ -32,11 +32,23 @@ class StageDS:
         ulr = (self._f(self.img_shape, i) - self.mean) / self.std
         return hr, hr, lr, ulr
 
+    def _stats(self, input_type):
+        # per-pixel statistics at that input's own resolution, like SimulationXZDataset: broadcasting a
+        # field of the wrong size fails, as it does on the real data
+        side = self.lr_side if input_type == 'lr' else self.img_shape
+        return np.full((1, side, side), self.mean, np.float32), np.full((1, side, side), self.std, np.float32)
+
     def unscale_data(self, a, input_type='hr', maintain_torch=False):
-        return a * self.std + self.mean
+        m, s = self._stats(input_type)
+        if torch.is_tensor(a):
+            m, s = torch.tensor(m), torch.tensor(s)
+        return a * s + m
 
     def rescale_data(self, a, input_type='hr', maintain_torch=False):
-        return (a - self.mean) / self.std
+        m, s = self._stats(input_type)
+        if torch.is_tensor(a):
+            m, s = torch.tensor(m), torch.tensor(s)
+        return (a - m) / s
 
 
 class Upsampler:

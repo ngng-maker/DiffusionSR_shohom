@@ -47,7 +47,8 @@ def eps_tag(eps: float) -> str:
 def eval_name_for(train_name: str, solver: str, eps: float, n_steps: int = 20) -> str:
     # 20 steps is the studies' default budget and keeps the original names; other budgets (the step-size
     # study) get an explicit suffix.
-    return f'{train_name}__{solver}_{eps_tag(eps)}' + ('' if int(n_steps) == 20 else f'_n{int(n_steps)}')
+    fixed_budget = solver in ('ddpm', 'encoder')   # ancestral DDPM always runs all its steps; encoder is one pass
+    return f'{train_name}__{solver}_{eps_tag(eps)}' + ('' if int(n_steps) == 20 or fixed_budget else f'_n{int(n_steps)}')
 
 
 def build_model(args, cfg, device):

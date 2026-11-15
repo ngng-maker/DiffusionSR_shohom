@@ -257,7 +257,7 @@ def trajectory_gif(model, test_ds, frame_idx: int, out_path: str, solver: str = 
     for i, t, x in states:
         s = unscale(x)[:, field]
         mean, std = s.mean(0), s.std(0)
-        frames.append(_render_row([gt, s[0], s[1], np.abs(mean - gt), std],
+        frames.append(_render_row([gt, s[0], s[min(1, len(s) - 1)], np.abs(mean - gt), std],
                                   ['Truth', 'Sample 1', 'Sample 2', '|mean - truth|', 'Ensemble std'],
                                   scales, f'{label}  step {i}  t = {t:.3f}  (frame {frame_idx})'.strip()))
     return _save_gif(frames, out_path)
