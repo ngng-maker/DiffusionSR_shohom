@@ -23,7 +23,7 @@ mkdir -p logs/si_multi
 ROW=$(awk -F'\t' -v i=$((SLURM_ARRAY_TASK_ID + 2)) 'NR == i' slurm/si_multi/cascade.tsv)
 IFS=$'\t' read -r CHAIN CA RA EA DA CB RB EB DB SOLVER EPS NSTEPS OUT PHASE <<< "$ROW"
 [ -n "$CHAIN" ] || { echo "no row for index $SLURM_ARRAY_TASK_ID"; exit 1; }
-WEIGHTS=raw
+WEIGHTS=ema   # SI chains: EMA weights (as the single-stage SI/FM evals); baseline rows say ddpm:ema / ddpm:raw
 case "$SOLVER" in ddpm:*) WEIGHTS="${SOLVER#ddpm:}"; SOLVER=ddpm ;; esac
 echo "=== $SLURM_ARRAY_TASK_ID: $CHAIN $SOLVER eps=$EPS n=$NSTEPS weights=$WEIGHTS ==="
 

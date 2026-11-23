@@ -73,6 +73,9 @@ COMMON = dict(downscale_method='direct', n_steps=N_STEPS, history=HISTORY, resid
               schedule='linear', timesteps=1000, batch_size=40, epochs=300, learning_rate=2e-4,
               use_pretrained=False, loss_type='l2', encoding=True, conditioning='implicit')
 HARNESS = dict(fm_timescale=1000.0, ema_decay=0.999, grad_clip=1.0, p_flip=0.2, ckpt_every=5)
+# SI and FM models are scored with their EMA weights (checkpoint[5]), matching the DDPM-matched EMA headline row;
+# DDPM matched is also scored raw as a reference, DiffusionSR has no EMA (plain loop). The cascade job does the same.
+SI_WEIGHTS = 'ema'
 # Encoder pretraining: identical to fno_ablation/enc_rrdb (the O1 encoder).
 ENC = dict(downscale_method='direct', n_steps=N_STEPS, history=HISTORY, encoding=True, residual_flag=False, conditioning='implicit',
            normalize_method='standardize', schedule='linear', timesteps=1000, batch_size=8, epochs=300,
@@ -113,10 +116,10 @@ def main():
     def grid_evals(s, name, cfg_rel, run_rel, out_root, phase):
         for solver in ('euler', 'heun'):
             for e in EPS:
-                evals.append((name, cfg_rel, run_rel, enc_dir(s), SETTINGS[s]['root'], solver, e, 20, 10, 'raw',
+                evals.append((name, cfg_rel, run_rel, enc_dir(s), SETTINGS[s]['root'], solver, e, 20, 10, SI_WEIGHTS,
                               out_root, '-', phase))
         for solver in ('rk4', 'dopri5'):
-            evals.append((name, cfg_rel, run_rel, enc_dir(s), SETTINGS[s]['root'], solver, 0.0, 20, 10, 'raw',
+            evals.append((name, cfg_rel, run_rel, enc_dir(s), SETTINGS[s]['root'], solver, 0.0, 20, 10, SI_WEIGHTS,
                           out_root, '-', phase))
 
     # ---------------- encoders (phase 1) ----------------
@@ -215,10 +218,10 @@ def main():
                 for n in STEP_SWEEP:
                     if is_si and n == 20:
                         continue                 # already in the SI grid (same eval name and out_root)
-                    evals.append((name, rel, run, enc_dir(s), SETTINGS[s]['root'], solver, 0.0, n, 10, 'raw',
+                    evals.append((name, rel, run, enc_dir(s), SETTINGS[s]['root'], solver, 0.0, n, 10, SI_WEIGHTS,
                                   out, '-', phase))
             if not is_si:                        # SI's dopri5 is already in its grid
-                evals.append((name, rel, run, enc_dir(s), SETTINGS[s]['root'], 'dopri5', 0.0, 20, 10, 'raw',
+                evals.append((name, rel, run, enc_dir(s), SETTINGS[s]['root'], 'dopri5', 0.0, 20, 10, SI_WEIGHTS,
                               out, '-', phase))
 
     os.makedirs(os.path.join(REPO, 'slurm/si_multi'), exist_ok=True)
