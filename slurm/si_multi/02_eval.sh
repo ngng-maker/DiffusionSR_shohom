@@ -27,11 +27,14 @@ mkdir -p logs/si_multi
 export SI_WANDB_GROUP=si_multi
 
 ROW=$(awk -F'\t' -v i=$((SLURM_ARRAY_TASK_ID + 2)) 'NR == i' slurm/si_multi/eval.tsv)
-IFS=$'\t' read -r NAME CFG MODEL ENC DATA SOLVER EPS NSTEPS K WEIGHTS OUT EXTRA PHASE <<< "$ROW"
+IFS=$'\t' read -r NAME CFG MODEL ENC DATA SOLVER EPS NSTEPS K WEIGHTS OUT EXTRA PHASE PREDS <<< "$ROW"
 [ -n "$NAME" ] || { echo "no row for index $SLURM_ARRAY_TASK_ID"; exit 1; }
-echo "=== $SLURM_ARRAY_TASK_ID: $NAME $SOLVER eps=$EPS n=$NSTEPS K=$K weights=$WEIGHTS extra=$EXTRA -> $OUT ==="
+PREDS=${PREDS:-full}
+echo "=== $SLURM_ARRAY_TASK_ID: $NAME $SOLVER eps=$EPS n=$NSTEPS K=$K weights=$WEIGHTS extra=$EXTRA preds=$PREDS -> $OUT ==="
 
-ARGS=()
+# Storage (docs/plans/2026-11_si_multi_eval_storage.md): partial/ holds frame t only; predictions.npz only for
+# headline rows (preds column: q16 = 16-bit + exact outliers, none = metrics/JSON/overlay/GIFs only).
+ARGS=(--save_predictions "$PREDS" --partial_current_frame)
 case "$EXTRA" in
   extras_only)      ARGS+=(--extras_only) ;;
   ckpt_artifact=*)  ARGS+=(--ckpt_artifact "${EXTRA#ckpt_artifact=}") ;;

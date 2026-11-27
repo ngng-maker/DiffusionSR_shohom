@@ -187,6 +187,10 @@ def main():
     ap.add_argument('--out_root', required=True)
     ap.add_argument('--max_frames', type=int, default=None)
     ap.add_argument('--keep_partial', action='store_true')
+    ap.add_argument('--save_predictions', default='full', choices=['full', 'q16', 'none'],
+                    help="as evaluate_si_schedules: 'full' float32, 'q16' 16-bit + exact outliers, 'none'")
+    ap.add_argument('--partial_current_frame', action='store_true',
+                    help='keep only frame t of n_steps-stacked outputs in partial/ (5x less temporary disk)')
     ap.add_argument('--no_extras', action='store_true')
     ap.add_argument('--device', default='cuda')
     args = ap.parse_args()
@@ -211,12 +215,14 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     json_path = os.path.join(args.out_dir, f'{args.eval_name}_results.json')
     npz_path = os.path.join(args.out_dir, 'predictions.npz')
-    if os.path.exists(json_path) and os.path.exists(npz_path):
+    if os.path.exists(json_path) and (os.path.exists(npz_path) or args.save_predictions == 'none'):
         print(f'{json_path} exists; nothing to do')
         return
 
-    preds, gts, ulrs, nfe, wall = sample_resumable(model, chain_ds, args, device)
-    from diffusionsr.analysis.eval_extras import to_current_frame        # score frame t only
+    from diffusionsr.analysis.eval_extras import current_frame, save_predictions, to_current_frame
+    cur = current_frame(cfg_b.get('n_steps', 1), len(field_names)) if args.partial_current_frame else None
+    preds, gts, ulrs, nfe, wall = sample_resumable(model, chain_ds, args, device, cur=cur)
+    # score frame t only
     preds, gts, ulrs = to_current_frame(preds, gts, ulrs, cfg_b.get('n_steps', 1), len(field_names))
     px_um = hr_px_um(cfg_b, ds_b)
     if args.plot_frame_idx < 0:
@@ -238,12 +244,11 @@ def main():
             results[f'ckpt_MB_stage_{s}'] = float(os.path.getsize(p) / 2 ** 20) if os.path.exists(p) else float('nan')
     overlay_ulrs = np.asarray(ulrs)
     save_overlay_png(preds, gts, overlay_ulrs, args.out_dir, int(args.plot_frame_idx))
-    np.savez_compressed(npz_path + '.tmp.npz', pred=np.asarray(preds, dtype=np.float32),
-                        gt=np.asarray(gts, dtype=np.float32), ens_std=np.asarray(preds, dtype=np.float32).std(axis=1),
-                        field_names=np.array(field_names, dtype=object))
-    os.replace(npz_path + '.tmp.npz', npz_path)
-    with open(json_path, 'w') as f:
+    results['predictions_saved'] = (save_predictions(npz_path, preds, gts, field_names, args.save_predictions)
+                                    if args.save_predictions != 'none' else 'none')
+    with open(json_path + '.tmp', 'w') as f:
         json.dump(results, f, indent=2)
+    os.replace(json_path + '.tmp', json_path)         # atomic: the JSON marks the eval as done
     if not args.keep_partial:
         del preds, gts, ulrs
         import gc

@@ -40,8 +40,9 @@ def rescore(arm_dir: str, entity: str, project: str, factor: int) -> dict:
         art.download(root=tmp)
         # `with`: np.load keeps the .npz open until closed, and deleting an open file on NFS leaves a
         # .nfs* placeholder that made removing the temp dir fail ("Directory not empty").
-        with np.load(os.path.join(tmp, 'predictions.npz'), allow_pickle=True) as d:
-            pred, gt = d['pred'].astype(np.float64), d['gt'].astype(np.float64)
+        from diffusionsr.analysis.eval_extras import load_predictions   # 'full' and 'q16' files
+        d = load_predictions(os.path.join(tmp, 'predictions.npz'))
+        pred, gt = d['pred'].astype(np.float64), d['gt'].astype(np.float64)
 
     new = compute_metrics(pred, gt, _px_um(factor))
     for k in ('MAE_mean', 'MAE_ensemble_mean'):

@@ -26,8 +26,9 @@ from diffusionsr.analysis.evaluate_si_schedules import ensemble_skill
 def load_pair(d: str):
     npz = os.path.join(d, 'predictions.npz')
     if os.path.exists(npz):
-        with np.load(npz, allow_pickle=True) as z:
-            return np.asarray(z['pred']), np.asarray(z['gt'])
+        from diffusionsr.analysis.eval_extras import load_predictions   # 'full' and 'q16' files
+        d = load_predictions(npz)
+        return d['pred'], d['gt']
     p, g = os.path.join(d, 'pred.npy'), os.path.join(d, 'gt.npy')
     if os.path.exists(p) and os.path.exists(g):
         return np.load(p, mmap_mode='r'), np.load(g, mmap_mode='r')

@@ -315,6 +315,91 @@ def to_current_frame(preds, gts, ulrs, n_steps: int, n_fields: int):
     return preds[:, :, cur], gts[:, cur], ulrs[:, cur]
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# predictions.npz formats (docs/plans/2026-11_si_multi_eval_storage.md)
+#   'full'   pred float32 (N, K, C, H, W), gt float32 (N, C, H, W), ens_std float32, field_names  (all older evals)
+#   'q16'    pred stored as uint16 q with pred = q_offset[c] + q * q_step[c]; values outside the uint16 range (or
+#            not finite) are kept EXACTLY in a float32 side list (out_idx = flat index into pred, out_val). Every
+#            other value is within q_step / 2 of the float32 prediction (0.125 K for temperature). gt stays float32;
+#            ens_std is not stored (load_predictions recomputes it on request). format = 'q16_v1'.
+# Metrics are always computed inside the eval job from the float32 arrays, before saving.
+# ---------------------------------------------------------------------------------------------------------------
+Q16_FORMAT = 'q16_v1'
+# (offset, step) per field. Temperature: 0.25 K steps over -4096 .. 12287.75 K. Labels: 2^-13 over -4 .. 4.
+# Both steps are powers of two, so offset + q * step is exact in float32.
+Q16_PARAMS = {'temperature': (-4096.0, 0.25), 'liqlabel': (-4.0, 2.0 ** -13), 'sdfliqlabel': (-4.0, 2.0 ** -13)}
+Q16_MAX_OUTLIER_FRAC = 0.05     # more values outside the range than this: save float32 ('full') instead
+
+
+def save_predictions(path: str, preds, gts, field_names, fmt: str = 'full', chunk: int = 64) -> str:
+    """Write predictions.npz atomically in format 'full' or 'q16'; returns the format actually written ('q16'
+    falls back to 'full' for unknown fields or too many out-of-range values)."""
+    names = list(field_names)
+    tmp = path + '.tmp.npz'
+    if fmt == 'q16' and all(f in Q16_PARAMS for f in names):
+        N, K, C, H, W = preds.shape
+        if C != len(names):
+            raise ValueError(f'{C} prediction channels for fields {names}')
+        offs = np.array([Q16_PARAMS[f][0] for f in names], np.float64)[None, None, :, None, None]
+        steps = np.array([Q16_PARAMS[f][1] for f in names], np.float64)[None, None, :, None, None]
+        q = np.empty((N, K, C, H, W), np.uint16)
+        idx, val = [], []
+        per_frame = K * C * H * W
+        for s in range(0, N, chunk):
+            x = np.asarray(preds[s:s + chunk], dtype=np.float32)
+            z = (x.astype(np.float64) - offs) / steps
+            ok = np.isfinite(z) & (z > -0.5) & (z < 65535.5)
+            q[s:s + len(x)] = np.where(ok, np.rint(np.where(ok, z, 0.0)), 0.0).astype(np.uint16)
+            bad = np.flatnonzero(~ok)
+            if bad.size:
+                idx.append(bad.astype(np.int64) + s * per_frame)
+                val.append(x.reshape(-1)[bad])
+        n_out = int(sum(len(i) for i in idx))
+        if n_out <= Q16_MAX_OUTLIER_FRAC * q.size:
+            np.savez_compressed(tmp, format=np.array(Q16_FORMAT), pred_q=q,
+                                q_offset=offs.reshape(-1), q_step=steps.reshape(-1),
+                                out_idx=np.concatenate(idx) if idx else np.zeros(0, np.int64),
+                                out_val=np.concatenate(val) if val else np.zeros(0, np.float32),
+                                gt=np.asarray(gts, dtype=np.float32), field_names=np.array(names, dtype=object))
+            os.replace(tmp, path)
+            return 'q16'
+        print(f'save_predictions: {n_out} of {q.size} values outside the 16-bit range; saving float32 instead')
+        del q
+    elif fmt == 'q16':
+        print(f'save_predictions: no 16-bit parameters for fields {names}; saving float32 instead')
+    elif fmt != 'full':
+        raise ValueError(f'unknown predictions format {fmt!r}')
+    p = np.asarray(preds, dtype=np.float32)
+    np.savez_compressed(tmp, pred=p, gt=np.asarray(gts, dtype=np.float32), ens_std=p.std(axis=1),
+                        field_names=np.array(names, dtype=object))
+    os.replace(tmp, path)
+    return 'full'
+
+
+def load_predictions(path: str, with_std: bool = False) -> dict:
+    """Read predictions.npz in either format: dict(pred float32 (N, K, C, H, W), gt, field_names, format[, ens_std])."""
+    with np.load(path, allow_pickle=True) as z:
+        names = [str(f) for f in z['field_names']] if 'field_names' in z.files else []
+        gt = np.asarray(z['gt'], dtype=np.float32)
+        if 'format' in z.files and str(z['format']) == Q16_FORMAT:
+            q = z['pred_q']
+            step = z['q_step'].astype(np.float32)[None, None, :, None, None]
+            off = z['q_offset'].astype(np.float32)[None, None, :, None, None]
+            pred = q.astype(np.float32)
+            pred *= step
+            pred += off
+            pred.reshape(-1)[z['out_idx']] = z['out_val']
+            out = dict(pred=pred, gt=gt, field_names=names, format='q16')
+        else:
+            pred = np.asarray(z['pred'], dtype=np.float32)
+            out = dict(pred=pred, gt=gt, field_names=names, format='full')
+            if with_std and 'ens_std' in z.files:
+                out['ens_std'] = np.asarray(z['ens_std'], dtype=np.float32)
+    if with_std and 'ens_std' not in out:
+        out['ens_std'] = pred.std(axis=1)
+    return out
+
+
 def write_json(path: str, obj: dict):
     tmp = path + '.tmp'
     with open(tmp, 'w') as f:

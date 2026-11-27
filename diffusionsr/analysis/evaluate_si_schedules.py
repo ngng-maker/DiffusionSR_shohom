@@ -96,8 +96,12 @@ def build_model(args, cfg, device):
 
 
 @torch.no_grad()
-def sample_resumable(model, test_ds, args, device):
-    """Fill <out_dir>/partial/{pred,gt,ulr}.npy batch by batch; resume from progress.json."""
+def sample_resumable(model, test_ds, args, device, cur: slice | None = None):
+    """Fill <out_dir>/partial/{pred,gt,ulr}.npy batch by batch; resume from progress.json.
+
+    cur: keep only these channels (eval_extras.current_frame: frame t of an n_steps-stacked output) in partial/,
+    instead of all n_steps frames (5x less temporary disk for n_steps = 5). None = every channel (the default,
+    so partial/ files written by older jobs still resume)."""
     part = os.path.join(args.out_dir, 'partial')
     os.makedirs(part, exist_ok=True)
     N, K = len(test_ds), args.k_samples
@@ -109,6 +113,8 @@ def sample_resumable(model, test_ds, args, device):
     prog = json.load(open(prog_path)) if os.path.exists(prog_path) else {}
     sig = dict(N=N, K=K, solver=args.solver, eps=args.eps, n_steps=args.n_steps, seed=args.seed,
                frames_per_batch=args.frames_per_batch, weights=args.weights)
+    if cur is not None:
+        sig['channels'] = [cur.start, cur.stop]     # absent for all-channel partials, so their sig is unchanged
     if prog and prog.get('sig') != sig:
         print('partial/ was written with different settings; starting over')
         shutil.rmtree(part); os.makedirs(part); prog = {}
@@ -118,7 +124,9 @@ def sample_resumable(model, test_ds, args, device):
     arrays = {}
     for i, (res, hr, lr, ulr) in enumerate(loader):
         if i == 0:
-            C, H, W = hr.shape[1:]
+            C_full, H, W = hr.shape[1:]
+            sl = cur if cur is not None else slice(None)
+            C = len(range(C_full)[sl])
             mode = 'r+' if done else 'w+'
             arrays['pred'] = np.lib.format.open_memmap(os.path.join(part, 'pred.npy'), mode, np.float32, (N, K, C, H, W))
             arrays['gt'] = np.lib.format.open_memmap(os.path.join(part, 'gt.npy'), mode, np.float32, (N, C, H, W))
@@ -135,11 +143,16 @@ def sample_resumable(model, test_ds, args, device):
         x1, nfe = model.sample(rep(ulr), rep(x_e), lr=rep(lr), solver=args.solver,
                                n_steps=args.n_steps, eps=args.eps, generator=gen)
         x1 = x1.cpu().numpy().reshape(B, K, *x1.shape[1:])
-        arrays['pred'][s0:s0 + B] = np.stack([np.stack([test_ds.unscale_data(x1[b, k], input_type='hr')
+        # Unscale with all channels' statistics first, then keep the channels in sl (all, unless cur is given).
+        # A model that already returns only frame t (C channels, e.g. ablation_adapter) is not sliced again.
+        sel = lambda a: a[sl] if a.shape[0] == C_full else a
+        arrays['pred'][s0:s0 + B] = np.stack([np.stack([sel(test_ds.unscale_data(x1[b, k], input_type='hr'))
                                                         for k in range(K)]) for b in range(B)])
-        arrays['gt'][s0:s0 + B] = np.stack([test_ds.unscale_data(hr[b].cpu().numpy(), input_type='hr') for b in range(B)])
-        # [-C:]: models fed several timesteps (ablation v3) are scored on the last one; a no-op otherwise.
-        arrays['ulr'][s0:s0 + B] = np.stack([test_ds.unscale_data(ulr[b].cpu().numpy(), input_type='upscaled_lr')[-C:]
+        arrays['gt'][s0:s0 + B] = np.stack([test_ds.unscale_data(hr[b].cpu().numpy(), input_type='hr')[sl]
+                                            for b in range(B)])
+        # [-C_full:]: models fed several timesteps (ablation v3) are scored on the last one; a no-op otherwise.
+        arrays['ulr'][s0:s0 + B] = np.stack([test_ds.unscale_data(ulr[b].cpu().numpy(),
+                                                                  input_type='upscaled_lr')[-C_full:][sl]
                                              for b in range(B)])
         for a in arrays.values():
             a.flush()
@@ -293,8 +306,9 @@ def run_extras_existing(args, json_path, npz_path):
     device = args.device if torch.cuda.is_available() else 'cpu'
     model, test_ds, field_names = build_model(args, cfg, device)
     results = json.load(open(json_path))
-    with np.load(npz_path, allow_pickle=True) as z:
-        preds, gts = np.asarray(z['pred']), np.asarray(z['gt'])
+    from diffusionsr.analysis.eval_extras import load_predictions
+    d = load_predictions(npz_path)
+    preds, gts = d['pred'], d['gt']
     px_um = hr_px_um(cfg, test_ds)
     if args.plot_frame_idx < 0:
         args.plot_frame_idx = largest_melt_frame(gts)
@@ -318,7 +332,8 @@ def upload(args, json_path, npz_path, overlay_path, results):
     run.summary.update({k: v for k, v in results.items() if isinstance(v, (int, float, str))})
     ok = log_single_version_artifact(
         f'{args.eval_name}_eval_predictions', 'eval_predictions',
-        {'predictions.npz': npz_path, 'results.json': json_path, 'overlay.png': overlay_path,
+        {**({'predictions.npz': npz_path} if os.path.exists(npz_path) else {}),
+         'results.json': json_path, 'overlay.png': overlay_path,
          **{f: os.path.join(args.out_dir, f) for f in ('pv_metrics.json', 'depth_subpx.json', 'trajectory.gif',
                                                       'simtime.gif') if os.path.exists(os.path.join(args.out_dir, f))}},
         metadata=results, description=f'SI-schedules eval: {args.eval_name}', run=run)
@@ -352,6 +367,11 @@ def main():
     ap.add_argument('--out_root', required=True)
     ap.add_argument('--ckpt_artifact', default='', help='restore bestmodel_saved.pth from here if missing')
     ap.add_argument('--keep_partial', action='store_true')
+    ap.add_argument('--save_predictions', default='full', choices=['full', 'q16', 'none'],
+                    help="predictions.npz: 'full' float32 (default, all older evals), 'q16' 16-bit + exact outliers "
+                         "(eval_extras.save_predictions), 'none' = metrics, JSON, overlay and GIFs only")
+    ap.add_argument('--partial_current_frame', action='store_true',
+                    help='keep only frame t of n_steps-stacked outputs in partial/ (5x less temporary disk)')
     ap.add_argument('--max_frames', type=int, default=None, help='smoke runs only: first N test frames')
     ap.add_argument('--no_upload', action='store_true')
     ap.add_argument('--run_tag', default=os.getenv('SI_SCHED_TAG', 'v1'))
@@ -376,7 +396,9 @@ def main():
     if args.extras_only:
         run_extras_existing(args, json_path, npz_path)
         return
-    if os.path.exists(json_path) and os.path.exists(npz_path) and os.path.exists(overlay_path):
+    # Done = results JSON + overlay (+ predictions.npz unless this eval keeps none). The JSON is written last.
+    have_preds = os.path.exists(npz_path) or args.save_predictions == 'none'
+    if os.path.exists(json_path) and have_preds and os.path.exists(overlay_path):
         print(f'{json_path} exists: skipping sampling, (re)uploading only')
         results = json.load(open(json_path))
     else:
@@ -387,9 +409,10 @@ def main():
         cfg = yaml.safe_load(open(args.config))
         device = args.device if torch.cuda.is_available() else 'cpu'
         model, test_ds, field_names = build_model(args, cfg, device)
-        preds, gts, ulrs, nfe, wall = sample_resumable(model, test_ds, args, device)
+        from diffusionsr.analysis.eval_extras import current_frame, save_predictions, to_current_frame
+        cur = current_frame(cfg.get('n_steps', 1), len(field_names)) if args.partial_current_frame else None
+        preds, gts, ulrs, nfe, wall = sample_resumable(model, test_ds, args, device, cur=cur)
         # n_steps > 1: the model predicts frames t-(n-1)..t; everything below scores and saves frame t only.
-        from diffusionsr.analysis.eval_extras import to_current_frame
         preds, gts, ulrs = to_current_frame(preds, gts, ulrs, cfg.get('n_steps', 1), len(field_names))
 
         px_um = hr_px_um(cfg, test_ds)
@@ -410,13 +433,11 @@ def main():
         if not args.no_extras:
             results.update(run_extras(args, cfg, model, test_ds, field_names, preds, gts, px_um, device))
         overlay_path = save_overlay_png(preds, gts, ulrs, args.out_dir, args.plot_frame_idx)
-        np.savez_compressed(npz_path + '.tmp.npz', pred=np.asarray(preds, dtype=np.float32),
-                            gt=np.asarray(gts, dtype=np.float32),
-                            ens_std=np.asarray(preds, dtype=np.float32).std(axis=1),
-                            field_names=np.array(field_names, dtype=object))
-        os.replace(npz_path + '.tmp.npz', npz_path)
-        with open(json_path, 'w') as f:
+        results['predictions_saved'] = (save_predictions(npz_path, preds, gts, field_names, args.save_predictions)
+                                        if args.save_predictions != 'none' else 'none')
+        with open(json_path + '.tmp', 'w') as f:
             json.dump(results, f, indent=2)
+        os.replace(json_path + '.tmp', json_path)     # atomic: the JSON marks the eval as done
         if not args.keep_partial:
             # Release the memory maps first: on NFS an open file is silly-renamed (.nfsXXXX) rather than
             # unlinked, which left an empty partial/ behind in the TRACE smoke run.

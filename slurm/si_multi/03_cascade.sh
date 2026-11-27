@@ -21,11 +21,12 @@ cluster_activate_env
 mkdir -p logs/si_multi
 
 ROW=$(awk -F'\t' -v i=$((SLURM_ARRAY_TASK_ID + 2)) 'NR == i' slurm/si_multi/cascade.tsv)
-IFS=$'\t' read -r CHAIN CA RA EA DA CB RB EB DB SOLVER EPS NSTEPS OUT PHASE <<< "$ROW"
+IFS=$'\t' read -r CHAIN CA RA EA DA CB RB EB DB SOLVER EPS NSTEPS OUT PHASE PREDS <<< "$ROW"
 [ -n "$CHAIN" ] || { echo "no row for index $SLURM_ARRAY_TASK_ID"; exit 1; }
+PREDS=${PREDS:-full}   # q16 (headline chains) | none (metrics/JSON/overlay/GIFs only); partial/ keeps frame t only
 WEIGHTS=ema   # SI chains: EMA weights (as the single-stage SI/FM evals); baseline rows say ddpm:ema / ddpm:raw
 case "$SOLVER" in ddpm:*) WEIGHTS="${SOLVER#ddpm:}"; SOLVER=ddpm ;; esac
-echo "=== $SLURM_ARRAY_TASK_ID: $CHAIN $SOLVER eps=$EPS n=$NSTEPS weights=$WEIGHTS ==="
+echo "=== $SLURM_ARRAY_TASK_ID: $CHAIN $SOLVER eps=$EPS n=$NSTEPS weights=$WEIGHTS preds=$PREDS ==="
 
 requeue_before_timeout() {
   echo "=== $(date) time limit approaching: requeueing $SLURM_JOB_ID ==="
@@ -37,6 +38,7 @@ python -m diffusionsr.analysis.evaluate_cascade --chain_name "$CHAIN" \
   --a_config "$CA" --a_model_dir "$RA" --a_enc_dir "$EA" --a_data_root "$DA" \
   --b_config "$CB" --b_model_dir "$RB" --b_enc_dir "$EB" --b_data_root "$DB" \
   --solver "$SOLVER" --eps "$EPS" --n_steps "$NSTEPS" --weights "$WEIGHTS" \
-  --upscale_mode "${CASCADE_UPSCALE_MODE:-dataset}" --out_root "$OUT" &
+  --upscale_mode "${CASCADE_UPSCALE_MODE:-dataset}" --out_root "$OUT" \
+  --save_predictions "$PREDS" --partial_current_frame &
 wait $!
 echo "=== cascade eval complete ==="

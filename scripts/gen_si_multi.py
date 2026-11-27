@@ -76,6 +76,12 @@ HARNESS = dict(fm_timescale=1000.0, ema_decay=0.999, grad_clip=1.0, p_flip=0.2, 
 # SI and FM models are scored with their EMA weights (checkpoint[5]), matching the DDPM-matched EMA headline row;
 # DDPM matched is also scored raw as a reference, DiffusionSR has no EMA (plain loop). The cascade job does the same.
 SI_WEIGHTS = 'ema'
+# Eval storage (docs/plans/2026-11_si_multi_eval_storage.md, option C): prediction arrays only for HEADLINE evals --
+# each SI/FM model and cascade chain at Euler, eps 0, 20 steps, and every baseline (ancestral DDPM, encoder alone) --
+# in the 16-bit format; every other eval keeps metrics, P/V tables, overlay and GIFs only.
+def preds_mode(solver: str, eps: float, n_steps: int) -> str:
+    headline = (solver == 'euler' and float(eps) == 0.0 and int(n_steps) == 20) or solver in ('encoder', 'ddpm')         or solver.startswith('ddpm:')
+    return 'q16' if headline else 'none'
 # Encoder pretraining: identical to fno_ablation/enc_rrdb (the O1 encoder).
 ENC = dict(downscale_method='direct', n_steps=N_STEPS, history=HISTORY, encoding=True, residual_flag=False, conditioning='implicit',
            normalize_method='standardize', schedule='linear', timesteps=1000, batch_size=8, epochs=300,
@@ -224,16 +230,19 @@ def main():
                 evals.append((name, rel, run, enc_dir(s), SETTINGS[s]['root'], 'dopri5', 0.0, 20, 10, SI_WEIGHTS,
                               out, '-', phase))
 
+    evals = [r + (preds_mode(r[5], r[6], r[7]),) for r in evals]
+    casc = [r + (preds_mode(r[9], r[10], r[11]),) for r in casc]
     os.makedirs(os.path.join(REPO, 'slurm/si_multi'), exist_ok=True)
     tsv(train, 'slurm/si_multi/train.tsv', ('kind', 'name', 'modeltype', 'config', 'run_dir', 'enc_dir', 'phase'))
     tsv(evals, 'slurm/si_multi/eval.tsv', ('name', 'config', 'model_dir', 'enc_dir', 'data_root', 'solver', 'eps',
-                                           'n_steps', 'k', 'weights', 'out_root', 'extra', 'phase'))
+                                           'n_steps', 'k', 'weights', 'out_root', 'extra', 'phase', 'preds'))
     tsv(casc, 'slurm/si_multi/cascade.tsv', ('chain', 'cfg_a', 'run_a', 'enc_a', 'root_a', 'cfg_b', 'run_b', 'enc_b',
-                                             'root_b', 'solver', 'eps', 'n_steps', 'out_root', 'phase'))
+                                             'root_b', 'solver', 'eps', 'n_steps', 'out_root', 'phase', 'preds'))
     by = lambda rows, i: {p: sum(1 for r in rows if r[i] == p) for p in sorted({r[i] for r in rows})}
     print(f'train rows {len(train)} by phase {by(train, 6)}')
     print(f'eval rows {len(evals)} by phase {by(evals, 12)}')
     print(f'cascade rows {len(casc)}')
+    print(f'prediction arrays kept: {sum(r[-1] != "none" for r in evals)} evals, {sum(r[-1] != "none" for r in casc)} cascades')
     if not LIQUID_RULE:
         print('NOTE: SI_MULTI_LIQUID_RULE unset -> no liquid IoU for sdfliqlabel until the rule is known', file=sys.stderr)
 
