@@ -26,11 +26,13 @@ cluster_activate_env
 mkdir -p logs/si_multi
 export SI_WANDB_GROUP=si_multi
 
-ROW=$(awk -F'\t' -v i=$((SLURM_ARRAY_TASK_ID + 2)) 'NR == i' slurm/si_multi/eval.tsv)
+# Slurm caps array indices at MaxArraySize-1 (1000 on TRACE): submit.sh passes IDX_OFFSET for rows >= 1000.
+RIDX=$((SLURM_ARRAY_TASK_ID + ${IDX_OFFSET:-0}))
+ROW=$(awk -F'\t' -v i=$((RIDX + 2)) 'NR == i' slurm/si_multi/eval.tsv)
 IFS=$'\t' read -r NAME CFG MODEL ENC DATA SOLVER EPS NSTEPS K WEIGHTS OUT EXTRA PHASE PREDS <<< "$ROW"
-[ -n "$NAME" ] || { echo "no row for index $SLURM_ARRAY_TASK_ID"; exit 1; }
+[ -n "$NAME" ] || { echo "no row for index $RIDX"; exit 1; }
 PREDS=${PREDS:-full}
-echo "=== $SLURM_ARRAY_TASK_ID: $NAME $SOLVER eps=$EPS n=$NSTEPS K=$K weights=$WEIGHTS extra=$EXTRA preds=$PREDS -> $OUT ==="
+echo "=== row $RIDX: $NAME $SOLVER eps=$EPS n=$NSTEPS K=$K weights=$WEIGHTS extra=$EXTRA preds=$PREDS -> $OUT ==="
 
 # Storage (docs/plans/2026-11_si_multi_eval_storage.md): partial/ holds frame t only; predictions.npz only for
 # headline rows (preds column: q16 = 16-bit + exact outliers, none = metrics/JSON/overlay/GIFs only).
